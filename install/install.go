@@ -7,24 +7,47 @@ import (
 	osexec "os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"tarish/embedded"
 )
 
 const (
-	// Installation paths
-	binPath    = "/usr/local/bin"
-	sharePath  = "/usr/local/share/tarish"
 	binaryName = "tarish"
 )
 
-// Install installs tarish to the system
-func Install() error {
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("installation requires root privileges. Run with sudo")
+// getInstallPaths returns the installation paths based on current user (root vs user)
+func getInstallPaths() (string, string, error) {
+	if os.Geteuid() == 0 {
+		// Root: System-wide installation
+		return "/usr/local/bin", "/usr/local/share/tarish", nil
 	}
 
-	fmt.Println("Installing tarish...")
+	// User: User-local installation
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get user home directory: %w", err)
+	}
+
+	binPath := filepath.Join(home, ".local", "bin")
+	sharePath := filepath.Join(home, ".local", "share", "tarish")
+
+	return binPath, sharePath, nil
+}
+
+// Install installs tarish to the system
+func Install() error {
+	binPath, sharePath, err := getInstallPaths()
+	if err != nil {
+		return err
+	}
+
+	isRoot := os.Geteuid() == 0
+	mode := "User"
+	if isRoot {
+		mode = "System"
+	}
+	fmt.Printf("Installing tarish (%s-wide)...\n", mode)
 
 	// Get current executable path
 	execPath, err := os.Executable()
@@ -38,12 +61,17 @@ func Install() error {
 		return fmt.Errorf("failed to resolve path: %w", err)
 	}
 
+	// Create bin directory if it doesn't exist
+	if err := os.MkdirAll(binPath, 0755); err != nil {
+		return fmt.Errorf("failed to create bin directory: %w", err)
+	}
+
 	// Create share directory
 	if err := os.MkdirAll(sharePath, 0755); err != nil {
 		return fmt.Errorf("failed to create share directory: %w", err)
 	}
 
-	// Copy binary to /usr/local/bin (skip if already there)
+	// Copy binary (skip if already there)
 	destBinary := filepath.Join(binPath, binaryName)
 	if execPath != destBinary {
 		if err := copyFile(execPath, destBinary); err != nil {
@@ -77,39 +105,54 @@ func Install() error {
 	fmt.Printf("  Installed xmrig binaries to %s\n", binDir)
 	fmt.Printf("  Installed configs to %s\n", filepath.Join(sharePath, "configs"))
 
-	// Create log directory (world-writable so non-root users can write logs)
+	// Create log directory
 	logDir := filepath.Join(sharePath, "log")
-	if err := os.MkdirAll(logDir, 0777); err != nil {
+	// If root, make it world-writable so users can write logs
+	perm := os.FileMode(0755)
+	if isRoot {
+		perm = 0777
+	}
+	if err := os.MkdirAll(logDir, perm); err != nil {
 		return fmt.Errorf("failed to create log directory: %w", err)
 	}
-	// Ensure it's writable even if it existed before
-	os.Chmod(logDir, 0777)
-
-	// Also ensure existing log file is writable
-	logFile := filepath.Join(logDir, "xmrig.log")
-	if _, err := os.Stat(logFile); err == nil {
-		os.Chmod(logFile, 0666)
+	if isRoot {
+		os.Chmod(logDir, 0777)
 	}
-
 	fmt.Printf("  Created log directory at %s\n", logDir)
 
 	// Create data directory for PID file etc
-	home := os.Getenv("HOME")
-	if home == "" {
-		home = "/root"
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		dataDir := filepath.Join(home, ".tarish")
+		os.MkdirAll(dataDir, 0755)
 	}
-	dataDir := filepath.Join(home, ".tarish")
-	os.MkdirAll(dataDir, 0755)
 
 	fmt.Println("\nInstallation complete!")
+	if !isRoot {
+		// Warn if not in PATH
+		path := os.Getenv("PATH")
+		if !contains(path, binPath) {
+			shell := os.Getenv("SHELL")
+			profile := "~/.bashrc"
+			if strings.Contains(shell, "zsh") {
+				profile = "~/.zshrc"
+			}
+			
+			fmt.Printf("\n\033[33mWarning: %s is not in your PATH.\033[0m\n", binPath)
+			fmt.Printf("To use 'tarish' command, run:\n\n")
+			fmt.Printf("  echo 'export PATH=\"$PATH:%s\"' >> %s\n", binPath, profile)
+			fmt.Printf("  source %s\n", profile)
+		}
+	}
 	fmt.Println("Run 'tarish help' to see available commands")
 	return nil
 }
 
 // Uninstall removes tarish from the system
 func Uninstall() error {
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("uninstallation requires root privileges. Run with sudo")
+	binPath, sharePath, err := getInstallPaths()
+	if err != nil {
+		return err
 	}
 
 	fmt.Println("Uninstalling tarish...")
@@ -137,12 +180,18 @@ func Uninstall() error {
 		fmt.Printf("  Removed %s\n", sharePath)
 	}
 
-	// Optionally remove user data (ask first in real implementation)
-	// For now, leave ~/.tarish intact
-
 	fmt.Println("\nUninstallation complete!")
-	fmt.Println("User data in ~/.tarish has been preserved")
 	return nil
+}
+
+// Helper: check if path is in PATH
+func contains(pathEnv, target string) bool {
+	for _, p := range filepath.SplitList(pathEnv) {
+		if p == target {
+			return true
+		}
+	}
+	return false
 }
 
 // copyFile copies a single file from src to dst
@@ -166,26 +215,16 @@ func copyFile(src, dst string) error {
 // stopXmrig stops any running xmrig processes
 func stopXmrig() {
 	// Use pkill to stop xmrig processes
-	// This is a simple implementation - the main code has better cleanup
 	if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-		// Just try to kill, ignore errors
 		execCmd("pkill", "-9", "xmrig")
 	}
 }
 
 // disableService disables the auto-start service
 func disableService() {
-	switch runtime.GOOS {
-	case "darwin":
-		plistPath := "/Library/LaunchDaemons/com.tarish.plist"
-		execCmd("launchctl", "unload", "-w", plistPath)
-		os.Remove(plistPath)
-	case "linux":
-		execCmd("systemctl", "stop", "tarish.service")
-		execCmd("systemctl", "disable", "tarish.service")
-		os.Remove("/etc/systemd/system/tarish.service")
-		execCmd("systemctl", "daemon-reload")
-	}
+	// This functionality is now handled in service/service.go
+	// But we keep basic cleanup here just in case
+	// Proper disable should be done via 'tarish service disable' before uninstall
 }
 
 // execCmd runs a command silently
@@ -215,17 +254,23 @@ func (c *execCmdWrapper) Run() error {
 
 // IsInstalled checks if tarish is installed
 func IsInstalled() bool {
+	binPath, _, err := getInstallPaths()
+	if err != nil {
+		return false
+	}
 	binaryPath := filepath.Join(binPath, binaryName)
-	_, err := os.Stat(binaryPath)
+	_, err = os.Stat(binaryPath)
 	return err == nil
 }
 
 // GetInstallPath returns the installation path
 func GetInstallPath() string {
+	binPath, _, _ := getInstallPaths()
 	return filepath.Join(binPath, binaryName)
 }
 
 // GetSharePath returns the share path
 func GetSharePath() string {
+	_, sharePath, _ := getInstallPaths()
 	return sharePath
 }

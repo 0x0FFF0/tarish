@@ -98,43 +98,60 @@ func findVersionDirs(basePath string) ([]string, error) {
 }
 
 // GetInstalledBinaryPath returns the path to installed xmrig binary
-func GetInstalledBinaryPath() (string, error) {
-	// Check standard installation path
+func GetInstalledBinaryPath() (*BinaryInfo, error) {
+	// 1. Check user-local path (~/.local/share/tarish/bin)
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		userPath := filepath.Join(home, ".local", "share", "tarish", "bin")
+		info, err := FindBinary(userPath)
+		if err == nil {
+			return info, nil
+		}
+	}
+
+	// 2. Check standard system installation path
 	installPath := "/usr/local/share/tarish/bin"
 	info, err := FindBinary(installPath)
 	if err == nil {
-		return info.Path, nil
+		return info, nil
 	}
 
 	// Fallback to relative path (for development)
 	execPath, err := os.Executable()
 	if err == nil {
-	execDir := filepath.Dir(execPath)
-	devPath := filepath.Join(execDir, "bin")
-	info, err = FindBinary(devPath)
-	if err == nil {
-		return info.Path, nil
+		execDir := filepath.Dir(execPath)
+		devPath := filepath.Join(execDir, "bin")
+		info, err = FindBinary(devPath)
+		if err == nil {
+			return info, nil
 		}
 	}
 
 	// Try current working directory
 	cwd, err := os.Getwd()
 	if err == nil {
-	cwdPath := filepath.Join(cwd, "bin")
-	info, err = FindBinary(cwdPath)
-	if err == nil {
-		return info.Path, nil
-	}
+		cwdPath := filepath.Join(cwd, "bin")
+		info, err = FindBinary(cwdPath)
+		if err == nil {
+			return info, nil
+		}
 	}
 
 	// Fallback: extract from embedded assets on-demand
 	fmt.Println("  Extracting xmrig from embedded assets...")
-	binaryPath, err := embedded.ExtractXmrigBinary(embedded.SharePath)
+	binaryPath, err := embedded.ExtractXmrigBinary("") // Uses default path
 	if err != nil {
-		return "", fmt.Errorf("no xmrig binary found: %w", err)
+		return nil, fmt.Errorf("no xmrig binary found: %w", err)
 	}
 
-	return binaryPath, nil
+	// Construct info from extracted path
+	version, _ := GetBinaryVersion(binaryPath)
+	return &BinaryInfo{
+		Path:    binaryPath,
+		Version: version,
+		OS:      runtime.GOOS,
+		Arch:    runtime.GOARCH,
+	}, nil
 }
 
 // GetBinaryVersion returns version info for a specific binary

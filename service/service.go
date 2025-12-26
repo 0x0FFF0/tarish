@@ -10,17 +10,19 @@ import (
 )
 
 const (
-	// macOS LaunchDaemon paths
-	launchDaemonPath = "/Library/LaunchDaemons"
-	launchDaemonName = "com.tarish.plist"
+	// macOS paths
+	systemLaunchDaemonPath = "/Library/LaunchDaemons"
+	userLaunchAgentPath    = "Library/LaunchAgents" // Relative to Home
+	plistName              = "com.tarish.plist"
 
 	// Linux systemd paths
 	systemdPath    = "/etc/systemd/system"
 	systemdService = "tarish.service"
 )
 
-// launchDaemonTemplate is the macOS LaunchDaemon plist template
-const launchDaemonTemplate = `<?xml version="1.0" encoding="UTF-8"?>
+// launchPlistTemplate is the macOS LaunchDaemon/Agent plist template
+// %s placeholders: 1=binary path, 2=log path, 3=error log path, 4=working dir
+const launchPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -28,7 +30,7 @@ const launchDaemonTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <string>com.tarish</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/tarish</string>
+        <string>%s</string>
         <string>start</string>
         <string>--force</string>
     </array>
@@ -37,22 +39,25 @@ const launchDaemonTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <key>KeepAlive</key>
     <false/>
     <key>StandardOutPath</key>
-    <string>/var/log/tarish.log</string>
+    <string>%s</string>
     <key>StandardErrorPath</key>
-    <string>/var/log/tarish.error.log</string>
+    <string>%s</string>
+    <key>WorkingDirectory</key>
+    <string>%s</string>
 </dict>
 </plist>
 `
 
 // systemdTemplate is the Linux systemd unit file template
+// %s placeholders: 1=binary path, 2=binary path (stop), 3=PID file
 const systemdTemplate = `[Unit]
 Description=Tarish Donate-free XMRig Manager
 After=network.target
 
 [Service]
 Type=forking
-ExecStart=/usr/local/bin/tarish start --force
-ExecStop=/usr/local/bin/tarish stop
+ExecStart=%s start --force
+ExecStop=%s stop
 PIDFile=%s
 Restart=on-failure
 RestartSec=10
@@ -60,6 +65,47 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 `
+
+// getInstallPaths returns binary and share paths based on user/root
+func getInstallPaths() (binPath, sharePath string) {
+	if os.Geteuid() == 0 {
+		return "/usr/local/bin/tarish", "/usr/local/share/tarish"
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "bin", "tarish"),
+		filepath.Join(home, ".local", "share", "tarish")
+}
+
+// findTarishBinary finds the installed tarish binary
+func findTarishBinary() (string, error) {
+	// Check user path first
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		userBin := filepath.Join(home, ".local", "bin", "tarish")
+		if _, err := os.Stat(userBin); err == nil {
+			return userBin, nil
+		}
+	}
+
+	// Check system path
+	sysBin := "/usr/local/bin/tarish"
+	if _, err := os.Stat(sysBin); err == nil {
+		return sysBin, nil
+	}
+
+	return "", fmt.Errorf("tarish not installed. Run 'tarish install' first")
+}
+
+// findSharePath finds the share directory based on binary location
+func findSharePath(binPath string) string {
+	// If binary is in ~/.local/bin, share is ~/.local/share/tarish
+	home, _ := os.UserHomeDir()
+	if home != "" && strings.HasPrefix(binPath, filepath.Join(home, ".local")) {
+		return filepath.Join(home, ".local", "share", "tarish")
+	}
+	// Otherwise use system path
+	return "/usr/local/share/tarish"
+}
 
 // Enable installs and enables the auto-start service
 func Enable() error {
@@ -97,49 +143,93 @@ func IsEnabled() (bool, error) {
 	}
 }
 
-// enableMacOS installs the LaunchDaemon on macOS
-func enableMacOS() error {
-	// Check if running as root
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("enabling service requires root privileges. Run with sudo")
+// getMacOSPlistPath returns the appropriate plist path based on permissions
+func getMacOSPlistPath() (string, bool, error) {
+	if os.Geteuid() == 0 {
+		// Root: System Daemon
+		return filepath.Join(systemLaunchDaemonPath, plistName), true, nil
 	}
 
-	// Check if tarish is installed
-	if _, err := os.Stat("/usr/local/bin/tarish"); os.IsNotExist(err) {
-		return fmt.Errorf("tarish not installed. Run 'tarish install' first")
+	// User: Launch Agent
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false, err
 	}
+	agentDir := filepath.Join(home, userLaunchAgentPath)
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		return "", false, err
+	}
+	return filepath.Join(agentDir, plistName), false, nil
+}
+
+// enableMacOS installs the LaunchDaemon/Agent on macOS
+func enableMacOS() error {
+	// Find tarish binary
+	binPath, err := findTarishBinary()
+	if err != nil {
+		return err
+	}
+
+	// Get share path based on binary location
+	sharePath := findSharePath(binPath)
+	logPath := filepath.Join(sharePath, "log", "tarish.log")
+	errorLogPath := filepath.Join(sharePath, "log", "tarish.error.log")
+
+	// Ensure log directory exists
+	logDir := filepath.Join(sharePath, "log")
+	os.MkdirAll(logDir, 0755)
+
+	plistPath, isRoot, err := getMacOSPlistPath()
+	if err != nil {
+		return err
+	}
+
+	// Generate plist content with correct paths
+	plistContent := fmt.Sprintf(launchPlistTemplate, binPath, logPath, errorLogPath, sharePath)
 
 	// Write plist file
-	plistPath := filepath.Join(launchDaemonPath, launchDaemonName)
-	if err := os.WriteFile(plistPath, []byte(launchDaemonTemplate), 0644); err != nil {
-		return fmt.Errorf("failed to write LaunchDaemon: %w", err)
+	if err := os.WriteFile(plistPath, []byte(plistContent), 0644); err != nil {
+		return fmt.Errorf("failed to write plist: %w", err)
 	}
 
-	// Set correct ownership
-	if err := exec.Command("chown", "root:wheel", plistPath).Run(); err != nil {
-		return fmt.Errorf("failed to set ownership: %w", err)
+	// Set correct ownership if root
+	if isRoot {
+		if err := exec.Command("chown", "root:wheel", plistPath).Run(); err != nil {
+			return fmt.Errorf("failed to set ownership: %w", err)
+		}
 	}
 
-	// Load the daemon
+	// Load the daemon/agent
 	if err := exec.Command("launchctl", "load", "-w", plistPath).Run(); err != nil {
-		return fmt.Errorf("failed to load LaunchDaemon: %w", err)
+		return fmt.Errorf("failed to load service: %w", err)
 	}
 
-	fmt.Println("Service enabled successfully")
-	fmt.Println("Tarish will start automatically on boot")
+	if isRoot {
+		fmt.Println("System service enabled successfully (LaunchDaemon)")
+		fmt.Println("Tarish will start automatically on system boot")
+	} else {
+		fmt.Println("User service enabled successfully (LaunchAgent)")
+		fmt.Println("Tarish will start automatically when you log in")
+	}
 	return nil
 }
 
-// disableMacOS removes the LaunchDaemon on macOS
+// disableMacOS removes the LaunchDaemon/Agent on macOS
 func disableMacOS() error {
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("disabling service requires root privileges. Run with sudo")
+	plistPath, _, err := getMacOSPlistPath()
+	if err != nil {
+		return err
 	}
-
-	plistPath := filepath.Join(launchDaemonPath, launchDaemonName)
 
 	// Check if service exists
 	if _, err := os.Stat(plistPath); os.IsNotExist(err) {
+		// Try checking the other location just in case
+		if os.Geteuid() != 0 {
+			sysPath := filepath.Join(systemLaunchDaemonPath, plistName)
+			if _, err := os.Stat(sysPath); err == nil {
+				return fmt.Errorf("system service found at %s. Run with sudo to disable", sysPath)
+			}
+		}
 		fmt.Println("Service is not installed")
 		return nil
 	}
@@ -149,17 +239,21 @@ func disableMacOS() error {
 
 	// Remove the plist file
 	if err := os.Remove(plistPath); err != nil {
-		return fmt.Errorf("failed to remove LaunchDaemon: %w", err)
+		return fmt.Errorf("failed to remove plist: %w", err)
 	}
 
 	fmt.Println("Service disabled successfully")
 	return nil
 }
 
-// isEnabledMacOS checks if the LaunchDaemon is installed on macOS
+// isEnabledMacOS checks if the service is installed on macOS
 func isEnabledMacOS() (bool, error) {
-	plistPath := filepath.Join(launchDaemonPath, launchDaemonName)
-	_, err := os.Stat(plistPath)
+	plistPath, _, err := getMacOSPlistPath()
+	if err != nil {
+		return false, err
+	}
+
+	_, err = os.Stat(plistPath)
 	if os.IsNotExist(err) {
 		return false, nil
 	}
@@ -175,21 +269,19 @@ func enableLinux() error {
 		return fmt.Errorf("enabling service requires root privileges. Run with sudo")
 	}
 
-	// Check if tarish is installed
-	if _, err := os.Stat("/usr/local/bin/tarish"); os.IsNotExist(err) {
-		return fmt.Errorf("tarish not installed. Run 'tarish install' first")
+	// Find tarish binary
+	binPath, err := findTarishBinary()
+	if err != nil {
+		return err
 	}
 
-	// Get PID file path
-	home := os.Getenv("HOME")
-	if home == "" {
-		home = "/root"
-	}
-	pidFile := filepath.Join(home, ".tarish", "xmrig.pid")
+	// Get share path and PID file
+	sharePath := findSharePath(binPath)
+	pidFile := filepath.Join(sharePath, "log", "xmrig.pid")
 
 	// Write service file
 	servicePath := filepath.Join(systemdPath, systemdService)
-	serviceContent := fmt.Sprintf(systemdTemplate, pidFile)
+	serviceContent := fmt.Sprintf(systemdTemplate, binPath, binPath, pidFile)
 	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
 		return fmt.Errorf("failed to write systemd service: %w", err)
 	}

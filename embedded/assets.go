@@ -12,15 +12,19 @@ import (
 // Assets is the embedded filesystem, set from main package
 var Assets embed.FS
 
-const (
-	// Installation path for extracted assets
-	SharePath = "/usr/local/share/tarish"
-)
+// GetSharePath returns the default share path based on user permissions
+func GetSharePath() string {
+	if os.Geteuid() == 0 {
+		return "/usr/local/share/tarish"
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "share", "tarish")
+}
 
 // ExtractAssets extracts all embedded assets to the share directory
 func ExtractAssets(destPath string) error {
 	if destPath == "" {
-		destPath = SharePath
+		destPath = GetSharePath()
 	}
 
 	// Extract bin directory
@@ -39,7 +43,7 @@ func ExtractAssets(destPath string) error {
 // ExtractXmrigBinary extracts only the xmrig binary for the current platform
 func ExtractXmrigBinary(destPath string) (string, error) {
 	if destPath == "" {
-		destPath = SharePath
+		destPath = GetSharePath()
 	}
 
 	// Find the xmrig binary for current platform
@@ -94,7 +98,7 @@ func ExtractXmrigBinary(destPath string) (string, error) {
 // ExtractConfigs extracts all config files
 func ExtractConfigs(destPath string) error {
 	if destPath == "" {
-		destPath = SharePath
+		destPath = GetSharePath()
 	}
 
 	return extractDir("configs", destPath)
@@ -173,15 +177,4 @@ func extractFile(srcPath, destPath string) error {
 	}
 
 	return nil
-}
-
-// IsExtracted checks if assets have been extracted to the share path
-func IsExtracted() bool {
-	binPath := filepath.Join(SharePath, "bin")
-	configsPath := filepath.Join(SharePath, "configs")
-
-	_, binErr := os.Stat(binPath)
-	_, configsErr := os.Stat(configsPath)
-
-	return binErr == nil && configsErr == nil
 }

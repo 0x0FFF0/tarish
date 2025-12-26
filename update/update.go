@@ -34,13 +34,13 @@ func Update() error {
 		fmt.Println("Proceeding with download...")
 		latestVersion = "latest"
 	} else {
-	fmt.Printf("Latest version: %s\n", latestVersion)
+		fmt.Printf("Latest version: %s\n", latestVersion)
 
-	// Compare versions
+		// Compare versions
 		if currentVersion == latestVersion && currentVersion != "dev" {
-		fmt.Println("You are already running the latest version")
-		return nil
-	}
+			fmt.Println("You are already running the latest version")
+			return nil
+		}
 	}
 
 	// Build download URL for current platform

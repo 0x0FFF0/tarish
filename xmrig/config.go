@@ -156,7 +156,16 @@ func getVendor(family string) string {
 
 // GetInstalledConfigPath returns the path to installed configs directory
 func GetInstalledConfigPath() string {
-	// Check standard installation path
+	// 1. Check user-local path (~/.local/share/tarish/configs)
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		userPath := filepath.Join(home, ".local", "share", "tarish", "configs")
+		if _, err := os.Stat(userPath); err == nil {
+			return userPath
+		}
+	}
+
+	// 2. Check standard system installation path
 	installPath := "/usr/local/share/tarish/configs"
 	if _, err := os.Stat(installPath); err == nil {
 		return installPath
@@ -181,8 +190,8 @@ func GetInstalledConfigPath() string {
 
 	// Fallback: extract from embedded assets on-demand
 	fmt.Println("  Extracting configs from embedded assets...")
-	if err := embedded.ExtractConfigs(embedded.SharePath); err == nil {
-		return installPath
+	if err := embedded.ExtractConfigs(""); err == nil {
+		return embedded.GetSharePath()
 	}
 
 	return installPath // Return default even if not found
@@ -269,7 +278,11 @@ func GetPIDFile() string {
 
 // GetLogDir returns the log directory path
 func GetLogDir() string {
-	return "/usr/local/share/tarish/log"
+	// Base it on where configs are installed
+	configPath := GetInstalledConfigPath()
+	// configPath is .../tarish/configs, so dir is .../tarish
+	baseDir := filepath.Dir(configPath)
+	return filepath.Join(baseDir, "log")
 }
 
 // GetLogFile returns the path to the log file

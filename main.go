@@ -146,8 +146,7 @@ func handleStart() {
 	fmt.Printf("  Config: %s\n", configPath)
 
 	// Find binary
-	binPath := xmrig.GetBinPath()
-	binaryInfo, err := xmrig.FindBinary(binPath)
+	binaryInfo, err := xmrig.GetInstalledBinaryPath()
 	if err != nil {
 		fmt.Printf("Error finding xmrig binary: %v\n", err)
 		os.Exit(1)
@@ -249,8 +248,7 @@ func handleInfo() {
 	}
 
 	// Show xmrig binary
-	binPath := xmrig.GetBinPath()
-	binaryInfo, err := xmrig.FindBinary(binPath)
+	binaryInfo, err := xmrig.GetInstalledBinaryPath()
 	if err != nil {
 		fmt.Printf("XMRig:      (not found)\n")
 	} else {
