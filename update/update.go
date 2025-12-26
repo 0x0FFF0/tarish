@@ -1,7 +1,6 @@
 package update
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,28 +12,12 @@ import (
 )
 
 const (
-	// Primary GitHub repo
-	primaryRepo = "0x0FFF0/tarish"
-	// Fallback URL (to be updated)
-	fallbackURL = "https://example.com/tarish/releases"
-
-	// GitHub API endpoints
-	githubAPIBase = "https://api.github.com/repos"
+	// Primary download base URL
+	baseURL = "https://file.aooo.nl/tarish"
 )
 
-// Release represents a GitHub release
-type Release struct {
-	TagName string  `json:"tag_name"`
-	Name    string  `json:"name"`
-	Assets  []Asset `json:"assets"`
-}
-
-// Asset represents a release asset
-type Asset struct {
-	Name               string `json:"name"`
-	BrowserDownloadURL string `json:"browser_download_url"`
-	Size               int64  `json:"size"`
-}
+// Version is set at build time
+var Version = "dev"
 
 // Update checks for updates and downloads the latest version
 func Update() error {
@@ -44,32 +27,30 @@ func Update() error {
 	currentVersion := GetCurrentVersion()
 	fmt.Printf("Current version: %s\n", currentVersion)
 
-	// Get latest release info
-	release, err := getLatestRelease()
+	// Check latest version from server
+	latestVersion, err := getLatestVersion()
 	if err != nil {
-		fmt.Println("Failed to check GitHub, trying fallback...")
-		return updateFromFallback()
-	}
-
-	latestVersion := strings.TrimPrefix(release.TagName, "v")
+		fmt.Printf("Warning: could not check version: %v\n", err)
+		fmt.Println("Proceeding with download...")
+		latestVersion = "latest"
+	} else {
 	fmt.Printf("Latest version: %s\n", latestVersion)
 
 	// Compare versions
-	if currentVersion == latestVersion {
+		if currentVersion == latestVersion && currentVersion != "dev" {
 		fmt.Println("You are already running the latest version")
 		return nil
 	}
-
-	// Find appropriate asset for current platform
-	asset := findAssetForPlatform(release.Assets)
-	if asset == nil {
-		return fmt.Errorf("no compatible release found for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
-	fmt.Printf("Downloading %s (%d bytes)...\n", asset.Name, asset.Size)
+	// Build download URL for current platform
+	binaryName := getBinaryName()
+	downloadURL := fmt.Sprintf("%s/dist/%s", baseURL, binaryName)
+
+	fmt.Printf("Downloading %s...\n", binaryName)
 
 	// Download to temp file
-	tempFile, err := downloadAsset(asset.BrowserDownloadURL)
+	tempFile, err := downloadFile(downloadURL)
 	if err != nil {
 		return fmt.Errorf("failed to download update: %w", err)
 	}
@@ -80,76 +61,56 @@ func Update() error {
 		return fmt.Errorf("failed to install update: %w", err)
 	}
 
-	fmt.Printf("Successfully updated to version %s\n", latestVersion)
+	fmt.Println("Successfully updated tarish")
 	return nil
 }
 
 // GetCurrentVersion returns the current version of tarish
 func GetCurrentVersion() string {
-	// This will be set at build time using ldflags
 	return Version
 }
 
-// Version is set at build time
-var Version = "dev"
-
-// getLatestRelease fetches the latest release from GitHub
-func getLatestRelease() (*Release, error) {
-	url := fmt.Sprintf("%s/%s/releases/latest", githubAPIBase, primaryRepo)
+// getLatestVersion fetches the latest version from the server
+func getLatestVersion() (string, error) {
+	url := fmt.Sprintf("%s/version.txt", baseURL)
 
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	resp, err := client.Get(url)
 	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "tarish-updater")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+		return "", fmt.Errorf("server returned status %d", resp.StatusCode)
 	}
 
-	var release Release
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil, err
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
 	}
 
-	return &release, nil
+	return strings.TrimSpace(string(body)), nil
 }
 
-// findAssetForPlatform finds the appropriate asset for the current OS/arch
-func findAssetForPlatform(assets []Asset) *Asset {
+// getBinaryName returns the expected binary name for current platform
+func getBinaryName() string {
 	osName := runtime.GOOS
 	if osName == "darwin" {
 		osName = "macos"
 	}
 	arch := runtime.GOARCH
 
-	// Expected naming: tarish_{os}_{arch}
-	expectedName := fmt.Sprintf("tarish_%s_%s", osName, arch)
-
-	for i := range assets {
-		if strings.Contains(strings.ToLower(assets[i].Name), strings.ToLower(expectedName)) {
-			return &assets[i]
-		}
-	}
-
-	return nil
+	return fmt.Sprintf("tarish_%s_%s", osName, arch)
 }
 
-// downloadAsset downloads an asset to a temporary file
-func downloadAsset(url string) (string, error) {
+// downloadFile downloads a file to a temporary location
+func downloadFile(url string) (string, error) {
 	client := &http.Client{
-		Timeout: 5 * time.Minute, // Allow longer timeout for download
+		Timeout: 5 * time.Minute,
 	}
 
 	resp, err := client.Get(url)
@@ -169,7 +130,7 @@ func downloadAsset(url string) (string, error) {
 	}
 	defer tempFile.Close()
 
-	// Copy with progress
+	// Copy content
 	written, err := io.Copy(tempFile, resp.Body)
 	if err != nil {
 		os.Remove(tempFile.Name())
@@ -207,7 +168,6 @@ func replaceBinary(newBinaryPath string) error {
 		return err
 	}
 
-	// On Unix, we can rename while running
 	// Create backup
 	backupPath := currentPath + ".bak"
 	if err := os.Rename(currentPath, backupPath); err != nil {
@@ -250,22 +210,13 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-// updateFromFallback attempts to update from the fallback URL
-func updateFromFallback() error {
-	// This is a placeholder - implement when fallback URL is configured
-	return fmt.Errorf("fallback update not yet configured. Please download manually from GitHub")
-}
-
 // CheckForUpdates checks if an update is available without downloading
 func CheckForUpdates() (bool, string, error) {
-	release, err := getLatestRelease()
+	latestVersion, err := getLatestVersion()
 	if err != nil {
 		return false, "", err
 	}
 
 	currentVersion := GetCurrentVersion()
-	latestVersion := strings.TrimPrefix(release.TagName, "v")
-
 	return currentVersion != latestVersion, latestVersion, nil
 }
-

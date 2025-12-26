@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO="0x0FFF0/tarish"
+BASE_URL="https://file.aooo.nl/tarish"
 INSTALL_DIR="/usr/local/bin"
 
 # Detect OS and arch
@@ -12,13 +12,14 @@ ARCH=$(uname -m)
 [[ "$OS" == "darwin" ]] && OS="macos"
 
 BINARY="tarish_${OS}_${ARCH}"
-LATEST=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep tag_name | cut -d'"' -f4)
-URL="https://github.com/${REPO}/releases/download/${LATEST}/${BINARY}"
+URL="${BASE_URL}/dist/${BINARY}"
 
-echo "Installing tarish ${LATEST} (${OS}/${ARCH})..."
+echo "Installing tarish (${OS}/${ARCH})..."
 curl -fsSL "$URL" -o /tmp/tarish
 chmod +x /tmp/tarish
 mv /tmp/tarish "${INSTALL_DIR}/tarish"
-echo "Installed to ${INSTALL_DIR}/tarish"
-echo "Run: sudo tarish install"
 
+echo ""
+echo "Installed tarish to ${INSTALL_DIR}/tarish"
+echo ""
+echo "Run: sudo tarish install"

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"golang.org/x/mod/semver"
+	"tarish/embedded"
 )
 
 // BinaryInfo holds information about an xmrig binary
@@ -107,30 +108,33 @@ func GetInstalledBinaryPath() (string, error) {
 
 	// Fallback to relative path (for development)
 	execPath, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("failed to get executable path: %w", err)
-	}
-
+	if err == nil {
 	execDir := filepath.Dir(execPath)
 	devPath := filepath.Join(execDir, "bin")
 	info, err = FindBinary(devPath)
 	if err == nil {
 		return info.Path, nil
+		}
 	}
 
 	// Try current working directory
 	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("no xmrig binary found")
-	}
-
+	if err == nil {
 	cwdPath := filepath.Join(cwd, "bin")
 	info, err = FindBinary(cwdPath)
 	if err == nil {
 		return info.Path, nil
 	}
+	}
 
-	return "", fmt.Errorf("no xmrig binary found in standard locations")
+	// Fallback: extract from embedded assets on-demand
+	fmt.Println("  Extracting xmrig from embedded assets...")
+	binaryPath, err := embedded.ExtractXmrigBinary(embedded.SharePath)
+	if err != nil {
+		return "", fmt.Errorf("no xmrig binary found: %w", err)
+	}
+
+	return binaryPath, nil
 }
 
 // GetBinaryVersion returns version info for a specific binary

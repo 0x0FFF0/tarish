@@ -7,6 +7,8 @@ import (
 	osexec "os/exec"
 	"path/filepath"
 	"runtime"
+
+	"tarish/embedded"
 )
 
 const (
@@ -36,60 +38,62 @@ func Install() error {
 		return fmt.Errorf("failed to resolve path: %w", err)
 	}
 
-	execDir := filepath.Dir(execPath)
-
 	// Create share directory
 	if err := os.MkdirAll(sharePath, 0755); err != nil {
 		return fmt.Errorf("failed to create share directory: %w", err)
 	}
 
-	// Copy binary to /usr/local/bin
+	// Copy binary to /usr/local/bin (skip if already there)
 	destBinary := filepath.Join(binPath, binaryName)
-	if err := copyFile(execPath, destBinary); err != nil {
-		return fmt.Errorf("failed to copy binary: %w", err)
+	if execPath != destBinary {
+		if err := copyFile(execPath, destBinary); err != nil {
+			return fmt.Errorf("failed to copy binary: %w", err)
+		}
+		fmt.Printf("  Installed binary to %s\n", destBinary)
+	} else {
+		fmt.Printf("  Binary already at %s\n", destBinary)
 	}
 	if err := os.Chmod(destBinary, 0755); err != nil {
 		return fmt.Errorf("failed to set binary permissions: %w", err)
 	}
-	fmt.Printf("  Installed binary to %s\n", destBinary)
 
-	// Copy bin/ directory (xmrig binaries)
-	srcBin := filepath.Join(execDir, "bin")
-	destBin := filepath.Join(sharePath, "bin")
-	if _, err := os.Stat(srcBin); err == nil {
-		if err := copyDir(srcBin, destBin); err != nil {
-			return fmt.Errorf("failed to copy xmrig binaries: %w", err)
-		}
-		// Ensure xmrig binaries are executable
-		filepath.Walk(destBin, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil
-			}
-			if !info.IsDir() && filepath.Base(path) != ".DS_Store" {
-				os.Chmod(path, 0755)
-			}
+	// Extract embedded assets (xmrig binaries and configs)
+	fmt.Println("  Extracting embedded assets...")
+	if err := embedded.ExtractAssets(sharePath); err != nil {
+		return fmt.Errorf("failed to extract assets: %w", err)
+	}
+
+	// Make xmrig binaries executable
+	binDir := filepath.Join(sharePath, "bin")
+	filepath.Walk(binDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
 			return nil
-		})
-		fmt.Printf("  Installed xmrig binaries to %s\n", destBin)
-	} else {
-		fmt.Println("  Warning: xmrig binaries not found in source directory")
-	}
-
-	// Copy configs/ directory
-	srcConfigs := filepath.Join(execDir, "configs")
-	destConfigs := filepath.Join(sharePath, "configs")
-	if _, err := os.Stat(srcConfigs); err == nil {
-		if err := copyDir(srcConfigs, destConfigs); err != nil {
-			return fmt.Errorf("failed to copy configs: %w", err)
 		}
-		fmt.Printf("  Installed configs to %s\n", destConfigs)
-	} else {
-		// Create empty configs directory
-		os.MkdirAll(destConfigs, 0755)
-		fmt.Printf("  Created configs directory at %s\n", destConfigs)
+		if !info.IsDir() && filepath.Base(path) != ".DS_Store" {
+			os.Chmod(path, 0755)
+		}
+		return nil
+	})
+	fmt.Printf("  Installed xmrig binaries to %s\n", binDir)
+	fmt.Printf("  Installed configs to %s\n", filepath.Join(sharePath, "configs"))
+
+	// Create log directory (world-writable so non-root users can write logs)
+	logDir := filepath.Join(sharePath, "log")
+	if err := os.MkdirAll(logDir, 0777); err != nil {
+		return fmt.Errorf("failed to create log directory: %w", err)
+	}
+	// Ensure it's writable even if it existed before
+	os.Chmod(logDir, 0777)
+
+	// Also ensure existing log file is writable
+	logFile := filepath.Join(logDir, "xmrig.log")
+	if _, err := os.Stat(logFile); err == nil {
+		os.Chmod(logFile, 0666)
 	}
 
-	// Create data directory
+	fmt.Printf("  Created log directory at %s\n", logDir)
+
+	// Create data directory for PID file etc
 	home := os.Getenv("HOME")
 	if home == "" {
 		home = "/root"
@@ -157,36 +161,6 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(destFile, sourceFile)
 	return err
-}
-
-// copyDir recursively copies a directory
-func copyDir(src, dst string) error {
-	// Create destination directory
-	if err := os.MkdirAll(dst, 0755); err != nil {
-		return err
-	}
-
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-
-		if entry.IsDir() {
-			if err := copyDir(srcPath, dstPath); err != nil {
-				return err
-			}
-		} else {
-			if err := copyFile(srcPath, dstPath); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
 }
 
 // stopXmrig stops any running xmrig processes

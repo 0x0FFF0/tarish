@@ -1,6 +1,6 @@
 [Unit]
 Description=Tarish XMRig Mining Wrapper
-Documentation=https://github.com/0x0FFF0/tarish
+Documentation=https://file.aooo.nl/tarish/
 After=network-online.target
 Wants=network-online.target
 

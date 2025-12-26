@@ -81,12 +81,18 @@ func Start(binaryPath, configPath string, force bool) error {
 		return fmt.Errorf("failed to set executable permission: %w", err)
 	}
 
-	// Prepare log file
+	// Ensure log directory exists and prepare log file
+	if err := EnsureLogDir(); err != nil {
+		return fmt.Errorf("failed to create log directory: %w", err)
+	}
 	logFile := GetLogFile()
-	logHandle, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	// Open with 0666 permissions (read/write for everyone) so different users can append
+	logHandle, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
 	if err != nil {
 		return fmt.Errorf("failed to create log file: %w", err)
 	}
+	// Explicitly chmod to ensure 0666 (OpenFile obeys umask)
+	os.Chmod(logFile, 0666)
 
 	// Build command
 	cmd := exec.Command(binaryPath, "-c", configPath)
@@ -225,7 +231,12 @@ func Status() (*ProcessStatus, error) {
 
 // savePID saves the process ID to the PID file
 func savePID(pid int) error {
-	return os.WriteFile(GetPIDFile(), []byte(strconv.Itoa(pid)), 0644)
+	pidFile := GetPIDFile()
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0666); err != nil {
+		return err
+	}
+	// Ensure world-writable
+	return os.Chmod(pidFile, 0666)
 }
 
 // readPID reads the process ID from the PID file

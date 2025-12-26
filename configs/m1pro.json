@@ -61,7 +61,7 @@
     "cn-lite/0": false,
     "cn/0": false
   },
-  "log-file": null,
+  "log-file": "/usr/local/share/tarish/log/xmrig.log",
   "donate-level": 0,
   "donate-over-proxy": 0,
   "pools": [
@@ -89,7 +89,7 @@
   "print-time": 60,
   "syslog": false,
   "tls": {
-    "enabled": true,
+    "enabled": false,
     "protocols": null,
     "cert": null,
     "cert_key": null,

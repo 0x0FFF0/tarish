@@ -2,21 +2,29 @@ package main
 
 import (
 	"bufio"
+	"embed"
 	"fmt"
 	"os"
 	"strings"
 
 	"tarish/cpu"
+	"tarish/embedded"
 	"tarish/install"
 	"tarish/service"
 	"tarish/update"
 	"tarish/xmrig"
 )
 
+//go:embed bin configs
+var assets embed.FS
+
 // Version is set at build time
 var Version = "dev"
 
 func main() {
+	// Initialize embedded assets
+	embedded.Assets = assets
+
 	// Set version for update package
 	update.Version = Version
 
@@ -271,42 +279,74 @@ func handleInfo() {
 }
 
 func printHelp() {
-	help := `
-tarish - XMRig Wrapper for Easy Mining
+	// ANSI color codes
+	cyan := "\033[36m"
+	yellow := "\033[33m"
+	green := "\033[32m"
+	gray := "\033[90m"
+	bold := "\033[1m"
+	reset := "\033[0m"
 
-USAGE:
+	fmt.Printf(`
+%s%starish%s - XMRig Wrapper for Easy Mining
+
+%sUSAGE:%s
     tarish <command> [options]
 
-COMMANDS:
-    install, i       Install tarish to /usr/local/bin
-    uninstall, un    Uninstall tarish from the system
-    update, u        Update tarish from GitHub releases
+%sCOMMANDS:%s
+    %sinstall, i%s       Install tarish to /usr/local/bin
+    %suninstall, un%s    Uninstall tarish from the system
+    %supdate, u%s        Update tarish to latest version
 
-    start, st        Start mining with auto-detected config
-                     Use --force to kill existing process
-    stop, sp         Stop all xmrig processes
-    status           Show mining status and statistics
+    %sstart, st%s        Start mining with auto-detected config
+                     %sUse --force to kill existing process%s
+    %sstop, sp%s         Stop all xmrig processes
+    %sstatus%s           Show mining status and statistics
 
-    service enable   Enable auto-start on boot
-    service disable  Disable auto-start on boot
-    service status   Show auto-start status
+    %sservice enable%s   Enable auto-start on boot
+    %sservice disable%s  Disable auto-start on boot
+    %sservice status%s   Show auto-start status
 
-    info             Show system and configuration info
-    help, h          Show this help message
-    version, v       Show version information
+    %sinfo%s             Show system and configuration info
+    %shelp, h%s          Show this help message
+    %sversion, v%s       Show version information
 
-EXAMPLES:
-    tarish start           Start mining
-    tarish start --force   Force restart mining
-    tarish stop            Stop mining
-    tarish status          Check mining status
+%sEXAMPLES:%s
+    %starish start%s           Start mining
+    %starish start --force%s   Force restart mining
+    %starish stop%s            Stop mining
+    %starish status%s          Check mining status
     
-    sudo tarish install    Install to system
-    sudo tarish service enable   Enable auto-start
+    %ssudo tarish install%s    Install to system
+    %ssudo tarish service enable%s   Enable auto-start
 
-For more information, visit: https://github.com/0x0FFF0/tarish
-`
-	fmt.Println(help)
+%sFor more information, visit: https://file.aooo.nl/tarish/%s
+`,
+		bold, cyan, reset,
+		yellow, reset,
+		yellow, reset,
+		green, reset,
+		green, reset,
+		green, reset,
+		green, reset,
+		gray, reset,
+		green, reset,
+		green, reset,
+		green, reset,
+		green, reset,
+		green, reset,
+		green, reset,
+		green, reset,
+		green, reset,
+		yellow, reset,
+		cyan, reset,
+		cyan, reset,
+		cyan, reset,
+		cyan, reset,
+		cyan, reset,
+		cyan, reset,
+		gray, reset,
+	)
 }
 
 func printVersion() {

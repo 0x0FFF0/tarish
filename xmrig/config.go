@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"tarish/cpu"
+	"tarish/embedded"
 )
 
 // Config represents the xmrig configuration structure (partial)
@@ -178,6 +179,12 @@ func GetInstalledConfigPath() string {
 		return cwdPath
 	}
 
+	// Fallback: extract from embedded assets on-demand
+	fmt.Println("  Extracting configs from embedded assets...")
+	if err := embedded.ExtractConfigs(embedded.SharePath); err == nil {
+		return installPath
+	}
+
 	return installPath // Return default even if not found
 }
 
@@ -225,7 +232,8 @@ func ListAvailableConfigs() ([]string, error) {
 	configsPath := GetInstalledConfigPath()
 	entries, err := os.ReadDir(configsPath)
 	if err != nil {
-		return nil, err
+		// Fallback to embedded configs list
+		return embedded.ListEmbeddedConfigs()
 	}
 
 	var configs []string
@@ -255,12 +263,30 @@ func EnsureDataDir() error {
 
 // GetPIDFile returns the path to the PID file
 func GetPIDFile() string {
-	return filepath.Join(GetDataDir(), "xmrig.pid")
+	// Store PID file in the log directory which is world-writable
+	return filepath.Join(GetLogDir(), "xmrig.pid")
+}
+
+// GetLogDir returns the log directory path
+func GetLogDir() string {
+	return "/usr/local/share/tarish/log"
 }
 
 // GetLogFile returns the path to the log file
 func GetLogFile() string {
-	return filepath.Join(GetDataDir(), "xmrig.log")
+	return filepath.Join(GetLogDir(), "xmrig.log")
+}
+
+// EnsureLogDir creates the log directory if it doesn't exist
+func EnsureLogDir() error {
+	// Try to create with 777 permissions
+	// Note: umask might still restrict this, but we try our best
+	if err := os.MkdirAll(GetLogDir(), 0777); err != nil {
+		return err
+	}
+	// Force permissions if we own the directory or have rights
+	os.Chmod(GetLogDir(), 0777)
+	return nil
 }
 
 // GetBinPath returns the binary search path based on OS
