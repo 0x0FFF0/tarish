@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tarish</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/tarish</string>
+        <string>start</string>
+        <string>--force</string>
+    </array>
+    
+    <!-- Start on system boot -->
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <!-- Don't keep alive - tarish manages its own daemon -->
+    <key>KeepAlive</key>
+    <false/>
+    
+    <!-- Wait for network before starting -->
+    <key>NetworkState</key>
+    <true/>
+    
+    <!-- Log output -->
+    <key>StandardOutPath</key>
+    <string>/var/log/tarish.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/tarish.error.log</string>
+    
+    <!-- Low priority to not affect system startup -->
+    <key>Nice</key>
+    <integer>10</integer>
+    
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/usr/local/share/tarish</string>
+</dict>
+</plist>
+

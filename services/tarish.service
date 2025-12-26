@@ -1,0 +1,41 @@
+[Unit]
+Description=Tarish XMRig Mining Wrapper
+Documentation=https://github.com/0x0FFF0/tarish
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/tarish start --force
+ExecStop=/usr/local/bin/tarish stop
+ExecReload=/usr/local/bin/tarish stop && /usr/local/bin/tarish start --force
+
+# PID file location
+PIDFile=/root/.tarish/xmrig.pid
+
+# Restart on failure
+Restart=on-failure
+RestartSec=30
+
+# Wait before considering service started
+TimeoutStartSec=10
+
+# Process priority (nice value)
+Nice=10
+
+# Resource limits - adjust based on system
+#CPUQuota=90%
+#MemoryMax=4G
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/root/.tarish /var/log
+
+# Working directory
+WorkingDirectory=/usr/local/share/tarish
+
+[Install]
+WantedBy=multi-user.target
+
