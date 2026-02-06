@@ -5,10 +5,10 @@
   },
   "http": {
     "enabled": true,
-    "host": "127.0.0.1",
+    "host": "0.0.0.0",
     "port": 8181,
-    "access-token": "my-secret-token",
-    "restricted": true
+    "access-token": "Hello2025@",
+    "restricted": false
   },
   "autosave": false,
   "background": false,

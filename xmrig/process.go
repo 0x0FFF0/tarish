@@ -332,41 +332,47 @@ func findXmrigProcesses() []int {
 	return pids
 }
 
-// getAPIStatus tries to get status from xmrig's HTTP API
+// getAPIStatus tries to get status from xmrig's HTTP API.
+// It reads the port and access-token from the active runtime config.
 func getAPIStatus() (*APIResponse, error) {
-	// Try common API ports
-	ports := []int{8080, 8000, 3000}
+	port, accessToken := GetHTTPConfigFromRuntime()
 
 	client := &http.Client{
 		Timeout: 2 * time.Second,
 	}
 
-	for _, port := range ports {
-		url := fmt.Sprintf("http://127.0.0.1:%d/1/summary", port)
-		resp, err := client.Get(url)
-		if err != nil {
-			continue
-		}
-		defer resp.Body.Close()
+	url := fmt.Sprintf("http://127.0.0.1:%d/1/summary", port)
 
-		if resp.StatusCode != 200 {
-			continue
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			continue
-		}
-
-		var apiResp APIResponse
-		if err := json.Unmarshal(body, &apiResp); err != nil {
-			continue
-		}
-
-		return &apiResp, nil
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	return nil, fmt.Errorf("API not available")
+	if accessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("API not available: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var apiResp APIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return &apiResp, nil
 }
 
 // parseLogFile extracts status information from the xmrig log file
@@ -447,51 +453,72 @@ func tailFile(file *os.File, n int) ([]string, error) {
 	return lines, scanner.Err()
 }
 
-// FormatStatus formats the status for display
+// ANSI color codes (consistent with printHelp in main.go)
+const (
+	colorCyan   = "\033[36m"
+	colorYellow = "\033[33m"
+	colorGreen  = "\033[32m"
+	colorRed    = "\033[31m"
+	colorGray   = "\033[90m"
+	colorBold   = "\033[1m"
+	colorReset  = "\033[0m"
+)
+
+// FormatStatus formats the status for display with color highlighting
 func (s *ProcessStatus) FormatStatus() string {
 	var sb strings.Builder
 
 	if !s.Running {
-		sb.WriteString("Status: NOT RUNNING\n")
+		sb.WriteString(fmt.Sprintf("  %sStatus:           %s%sNOT RUNNING%s\n",
+			colorYellow, colorReset, colorRed, colorReset))
 		return sb.String()
 	}
 
-	sb.WriteString(fmt.Sprintf("Status: RUNNING (PID: %d)\n", s.PID))
+	sb.WriteString(fmt.Sprintf("  %sStatus:           %s%s%sRUNNING%s %s(PID: %d)%s\n",
+		colorYellow, colorReset, colorBold, colorGreen, colorReset, colorGray, s.PID, colorReset))
 
 	if s.Version != "" {
-		sb.WriteString(fmt.Sprintf("Version: %s\n", s.Version))
+		sb.WriteString(fmt.Sprintf("  %sVersion:          %s%s%s%s\n",
+			colorYellow, colorReset, colorCyan, s.Version, colorReset))
 	}
 
 	if s.Uptime > 0 {
-		sb.WriteString(fmt.Sprintf("Uptime: %s\n", formatDuration(s.Uptime)))
+		sb.WriteString(fmt.Sprintf("  %sUptime:           %s%s%s%s\n",
+			colorYellow, colorReset, colorGreen, formatDuration(s.Uptime), colorReset))
 	}
 
 	if s.Hashrate != nil {
-		sb.WriteString(fmt.Sprintf("Hashrate: %.2f H/s (10s) | %.2f H/s (60s) | %.2f H/s (max)\n",
-			s.Hashrate.Current, s.Hashrate.Average, s.Hashrate.Max))
+		sb.WriteString(fmt.Sprintf("  %sHashrate:         %s%s%s%.2f H/s%s %s(10s)%s | %s%.2f H/s%s %s(60s)%s | %s%.2f H/s%s %s(max)%s\n",
+			colorYellow, colorReset,
+			colorBold, colorGreen, s.Hashrate.Current, colorReset, colorGray, colorReset,
+			colorGreen, s.Hashrate.Average, colorReset, colorGray, colorReset,
+			colorGreen, s.Hashrate.Max, colorReset, colorGray, colorReset))
 	}
 
 	if s.Pool != nil {
-		sb.WriteString(fmt.Sprintf("Pool: %s\n", s.Pool.URL))
+		sb.WriteString(fmt.Sprintf("  %sPool:             %s%s%s%s\n",
+			colorYellow, colorReset, colorCyan, s.Pool.URL, colorReset))
 		if s.Pool.User != "" {
-			// Truncate wallet address for display
 			user := s.Pool.User
 			if len(user) > 20 {
 				user = user[:10] + "..." + user[len(user)-10:]
 			}
-			sb.WriteString(fmt.Sprintf("Wallet: %s\n", user))
+			sb.WriteString(fmt.Sprintf("  %sWallet:           %s%s%s%s\n",
+				colorYellow, colorReset, colorCyan, user, colorReset))
 		}
 	}
 
 	if s.DonateLevel > 0 {
-		sb.WriteString(fmt.Sprintf("Donate Level: %d%%\n", s.DonateLevel))
+		sb.WriteString(fmt.Sprintf("  %sDonate Level:     %s%s%d%%%s\n",
+			colorYellow, colorReset, colorGray, s.DonateLevel, colorReset))
 	}
 
-	// Show sleep prevention status
 	if s.SleepPrevention {
-		sb.WriteString("Sleep Prevention: ACTIVE ✓\n")
+		sb.WriteString(fmt.Sprintf("  %sSleep Prevention: %s%s%sACTIVE ✓%s\n",
+			colorYellow, colorReset, colorBold, colorGreen, colorReset))
 	} else {
-		sb.WriteString("Sleep Prevention: INACTIVE\n")
+		sb.WriteString(fmt.Sprintf("  %sSleep Prevention: %s%sINACTIVE%s %s(restart with 'tarish start --force' to activate)%s\n",
+			colorYellow, colorReset, colorRed, colorReset, colorGray, colorReset))
 	}
 
 	return sb.String()
@@ -511,4 +538,3 @@ func formatDuration(d time.Duration) string {
 	}
 	return fmt.Sprintf("%dm", minutes)
 }
-

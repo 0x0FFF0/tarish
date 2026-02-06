@@ -153,9 +153,18 @@ func handleStart() {
 	}
 	fmt.Printf("  XMRig: %s (v%s)\n", binaryInfo.Path, binaryInfo.Version)
 
+	// Prepare runtime config with api.id and worker-id
+	runtimeConfigPath, err := xmrig.PrepareRuntimeConfig(configPath, cpuInfo)
+	if err != nil {
+		fmt.Printf("Warning: Failed to prepare runtime config, using original: %v\n", err)
+		runtimeConfigPath = configPath
+	} else {
+		fmt.Printf("  Worker: api.id and worker-id assigned\n")
+	}
+
 	// Start xmrig
 	fmt.Println("\nStarting xmrig...")
-	if err := xmrig.Start(binaryInfo.Path, configPath, force); err != nil {
+	if err := xmrig.Start(binaryInfo.Path, runtimeConfigPath, force); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -169,19 +178,35 @@ func handleStop() {
 }
 
 func handleStatus() {
+	// ANSI color codes
+	cyan := "\033[36m"
+	yellow := "\033[33m"
+	green := "\033[32m"
+	red := "\033[31m"
+	gray := "\033[90m"
+	bold := "\033[1m"
+	reset := "\033[0m"
+
 	status, err := xmrig.Status()
 	if err != nil {
-		fmt.Printf("Error: %v\n", err)
+		fmt.Printf("%sError: %v%s\n", red, err, reset)
 		os.Exit(1)
 	}
 
-	fmt.Println("=== Tarish Status ===")
-	fmt.Println()
+	fmt.Printf("\n%s%s=== Tarish Status ===%s\n\n", bold, cyan, reset)
 	fmt.Print(status.FormatStatus())
 
 	// Show service status
 	serviceStatus := service.GetServiceStatus()
-	fmt.Printf("\nAuto-start: %s\n", serviceStatus)
+	serviceColor := green
+	serviceHint := ""
+	if strings.Contains(strings.ToLower(serviceStatus), "disabled") ||
+		strings.Contains(strings.ToLower(serviceStatus), "not") {
+		serviceColor = red
+		serviceHint = fmt.Sprintf(" %s(run 'sudo tarish service enable')%s", gray, reset)
+	}
+	fmt.Printf("\n  %sAuto-start:       %s%s%s%s%s\n\n",
+		yellow, reset, serviceColor, serviceStatus, reset, serviceHint)
 }
 
 func handleService() {

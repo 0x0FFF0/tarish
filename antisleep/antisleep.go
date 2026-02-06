@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 )
@@ -50,31 +51,67 @@ func Enable() error {
 	return nil
 }
 
-// Disable allows the system to sleep normally again
+// Disable allows the system to sleep normally again.
+// It stops the in-process guard if present, and also kills any orphaned
+// sleep-prevention process on the system (cross-process cleanup).
 func Disable() error {
 	guardMu.Lock()
 	defer guardMu.Unlock()
 
-	if globalGuard == nil {
-		return nil
+	// In-process stop
+	if globalGuard != nil {
+		globalGuard.stop()
 	}
 
-	return globalGuard.stop()
+	// Cross-process cleanup: kill the system-level process
+	killSystemProcess()
+	return nil
 }
 
-// IsEnabled returns whether sleep prevention is currently active
+// killSystemProcess terminates sleep-prevention processes on the system.
+func killSystemProcess() {
+	switch runtime.GOOS {
+	case "darwin":
+		exec.Command("pkill", "-f", "caffeinate -dim").Run()
+	case "linux":
+		exec.Command("pkill", "-f", "systemd-inhibit.*tarish").Run()
+	}
+}
+
+// IsEnabled returns whether sleep prevention is currently active.
+// It checks the in-process guard first, then falls back to detecting
+// the actual system process (caffeinate / systemd-inhibit) so it works
+// across separate tarish invocations (e.g. tarish status).
 func IsEnabled() bool {
 	guardMu.Lock()
 	defer guardMu.Unlock()
 
-	if globalGuard == nil {
-		return false
+	// In-process check (same process that called Enable)
+	if globalGuard != nil {
+		globalGuard.mu.Lock()
+		active := globalGuard.active
+		globalGuard.mu.Unlock()
+		if active {
+			return true
+		}
 	}
 
-	globalGuard.mu.Lock()
-	defer globalGuard.mu.Unlock()
+	// Cross-process check: detect the actual running process
+	return isActiveOnSystem()
+}
 
-	return globalGuard.active
+// isActiveOnSystem detects whether the sleep-prevention process is running
+// on the system, regardless of which tarish invocation started it.
+func isActiveOnSystem() bool {
+	switch runtime.GOOS {
+	case "darwin":
+		out, err := exec.Command("pgrep", "-f", "caffeinate -dim").Output()
+		return err == nil && len(strings.TrimSpace(string(out))) > 0
+	case "linux":
+		out, err := exec.Command("pgrep", "-f", "systemd-inhibit.*tarish").Output()
+		return err == nil && len(strings.TrimSpace(string(out))) > 0
+	}
+	return false
 }
 
 // enableMacOS uses caffeinate to prevent system sleep on macOS

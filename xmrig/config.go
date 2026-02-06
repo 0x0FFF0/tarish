@@ -3,6 +3,7 @@ package xmrig
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -336,4 +337,130 @@ func GetPlatformName() string {
 		osName = "macos"
 	}
 	return fmt.Sprintf("%s_%s", osName, runtime.GOARCH)
+}
+
+// GetRuntimeConfigPath returns the path to the runtime config file
+func GetRuntimeConfigPath() string {
+	return filepath.Join(GetLogDir(), "xmrig_runtime.json")
+}
+
+// PrepareRuntimeConfig creates a runtime config with api.id and worker-id populated.
+// It reads the selected config, injects identity fields, and writes to a runtime path.
+func PrepareRuntimeConfig(configPath string, cpuInfo *cpu.Info) (string, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read config: %w", err)
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return "", fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	// Build api.id: short CPU name + index (e.g. "m3max-0", "5900x-0")
+	shortName := getShortCPUName(cpuInfo.Family)
+	apiID := shortName + "-0"
+
+	// Build worker-id: local IP with dots replaced by dashes (e.g. "192-168-1-50")
+	workerID := buildWorkerID()
+
+	// Inject into the api section
+	apiSection, ok := raw["api"].(map[string]interface{})
+	if !ok {
+		apiSection = make(map[string]interface{})
+	}
+	apiSection["id"] = apiID
+	apiSection["worker-id"] = workerID
+	raw["api"] = apiSection
+
+	// Write runtime config
+	runtimePath := GetRuntimeConfigPath()
+	output, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal config: %w", err)
+	}
+	output = append(output, '\n')
+
+	if err := os.WriteFile(runtimePath, output, 0666); err != nil {
+		return "", fmt.Errorf("failed to write runtime config: %w", err)
+	}
+	os.Chmod(runtimePath, 0666)
+
+	return runtimePath, nil
+}
+
+// getShortCPUName returns a concise identifier for the CPU family.
+// Apple Silicon: apple_m3_max → m3max, AMD specific: 5900x → 5900x
+func getShortCPUName(family string) string {
+	if short := getShortName(family); short != "" {
+		return short
+	}
+	return family
+}
+
+// buildWorkerID returns the local IP address with dots replaced by dashes.
+func buildWorkerID() string {
+	ip := getLocalIP()
+	return strings.ReplaceAll(ip, ".", "-")
+}
+
+// getLocalIP returns the machine's preferred outbound IPv4 address.
+func getLocalIP() string {
+	// Preferred: determine the outbound IP via a UDP dial (no data is sent)
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err == nil {
+		defer conn.Close()
+		if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok {
+			return addr.IP.String()
+		}
+	}
+
+	// Fallback: enumerate network interfaces
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "unknown"
+	}
+	for _, addr := range addrs {
+		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
+			if ipNet.IP.To4() != nil {
+				return ipNet.IP.String()
+			}
+		}
+	}
+	return "unknown"
+}
+
+// GetHTTPConfigFromRuntime reads port and access-token from the active config.
+// It checks the runtime config first, then falls back to the system-selected config.
+func GetHTTPConfigFromRuntime() (port int, accessToken string) {
+	port = 8181 // match config default
+	accessToken = ""
+
+	// Try runtime config first, then fall back to system-selected config
+	data, err := os.ReadFile(GetRuntimeConfigPath())
+	if err != nil {
+		// Miner may have been started before runtime config was introduced,
+		// or manually — fall back to the config that matches this system.
+		if configPath, _, cfgErr := GetConfigForCurrentSystem(); cfgErr == nil {
+			data, err = os.ReadFile(configPath)
+		}
+		if err != nil {
+			return
+		}
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return
+	}
+
+	if httpSection, ok := raw["http"].(map[string]interface{}); ok {
+		if p, ok := httpSection["port"].(float64); ok {
+			port = int(p)
+		}
+		if t, ok := httpSection["access-token"].(string); ok {
+			accessToken = t
+		}
+	}
+	return
 }
