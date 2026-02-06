@@ -226,6 +226,23 @@ func determineFamily(model string) string {
 			if strings.Contains(modelLower, "threadripper") {
 				return "amd_threadripper"
 			}
+			// Check for specific Ryzen 9 models first
+			if strings.Contains(modelLower, "9950x") {
+				return "9950x"
+			}
+			if strings.Contains(modelLower, "9900x") {
+				return "9900x"
+			}
+			if strings.Contains(modelLower, "7950x") {
+				return "7950x"
+			}
+			if strings.Contains(modelLower, "5950x") {
+				return "5950x"
+			}
+			if strings.Contains(modelLower, "5900x") {
+				return "5900x"
+			}
+			// Generic Ryzen families
 			if strings.Contains(modelLower, "9") {
 				return "amd_ryzen9"
 			}
