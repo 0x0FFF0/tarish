@@ -15,17 +15,20 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"tarish/antisleep"
 )
 
 // ProcessStatus represents the current state of xmrig
 type ProcessStatus struct {
-	Running     bool
-	PID         int
-	Version     string
-	Uptime      time.Duration
-	Hashrate    *HashrateInfo
-	Pool        *PoolInfo
-	DonateLevel int
+	Running         bool
+	PID             int
+	Version         string
+	Uptime          time.Duration
+	Hashrate        *HashrateInfo
+	Pool            *PoolInfo
+	DonateLevel     int
+	SleepPrevention bool
 }
 
 // HashrateInfo contains hashrate statistics
@@ -126,7 +129,17 @@ func Start(binaryPath, configPath string, force bool) error {
 		logHandle.Close()
 		// Clean up PID file if process exits
 		os.Remove(GetPIDFile())
+		// Disable sleep prevention when process exits
+		antisleep.Disable()
 	}()
+
+	// Enable sleep prevention to keep system awake during mining
+	if err := antisleep.Enable(); err != nil {
+		fmt.Printf("Warning: Failed to enable sleep prevention: %v\n", err)
+		fmt.Println("System may sleep during mining. Consider enabling manually.")
+	} else {
+		fmt.Println("Sleep prevention enabled - system will stay awake during mining")
+	}
 
 	fmt.Printf("xmrig started successfully (PID: %d)\n", pid)
 	fmt.Printf("Log file: %s\n", logFile)
@@ -155,6 +168,14 @@ func Stop() error {
 
 	// Remove PID file
 	os.Remove(GetPIDFile())
+
+	// Disable sleep prevention
+	if err := antisleep.Disable(); err != nil {
+		fmt.Printf("Warning: Failed to disable sleep prevention: %v\n", err)
+	} else if antisleep.IsEnabled() {
+		// Only print if it was previously enabled
+		fmt.Println("Sleep prevention disabled - system can sleep normally")
+	}
 
 	if killed {
 		fmt.Println("xmrig stopped successfully")
@@ -186,6 +207,7 @@ func Status() (*ProcessStatus, error) {
 	pid, running := IsRunning()
 	status.Running = running
 	status.PID = pid
+	status.SleepPrevention = antisleep.IsEnabled()
 
 	if !running {
 		return status, nil
@@ -463,6 +485,13 @@ func (s *ProcessStatus) FormatStatus() string {
 
 	if s.DonateLevel > 0 {
 		sb.WriteString(fmt.Sprintf("Donate Level: %d%%\n", s.DonateLevel))
+	}
+
+	// Show sleep prevention status
+	if s.SleepPrevention {
+		sb.WriteString("Sleep Prevention: ACTIVE ✓\n")
+	} else {
+		sb.WriteString("Sleep Prevention: INACTIVE\n")
 	}
 
 	return sb.String()
