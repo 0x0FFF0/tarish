@@ -6,7 +6,18 @@
 set -e
 
 # Configuration
-VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo "dev")}"
+# Version priority: $VERSION env > git tag > git hash+date > "dev"
+if [ -z "$VERSION" ]; then
+    # Try tag-based version first (e.g. v1.2.3 or v1.2.3-4-gabcdef)
+    VERSION=$(git describe --tags --dirty 2>/dev/null || true)
+    if [ -z "$VERSION" ]; then
+        # No tags: use short hash + build timestamp to guarantee uniqueness
+        HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        DIRTY=""
+        if ! git diff --quiet 2>/dev/null; then DIRTY="-dirty"; fi
+        VERSION="${HASH}${DIRTY}-$(date +%Y%m%d%H%M%S)"
+    fi
+fi
 BUILD_DIR="dist"
 BINARY_NAME="tarish"
 
@@ -17,6 +28,11 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}Building tarish version ${VERSION}${NC}"
+echo ""
+
+# Write version file (rsync this to file.aooo.nl/tarish/version)
+printf '%s' "${VERSION}" > version
+echo -e "${YELLOW}version${NC} <- ${VERSION}"
 echo ""
 
 # Create build directory

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"tarish/config"
 	"tarish/cpu"
 	"tarish/embedded"
 	"tarish/install"
@@ -88,6 +89,37 @@ func handleUninstall() {
 }
 
 func handleUpdate() {
+	// Check for subcommands: tarish update <enable|disable|status>
+	if len(os.Args) >= 3 {
+		sub := strings.ToLower(os.Args[2])
+		switch sub {
+		case "enable":
+			if err := config.SetAutoUpdate(true); err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Auto-update enabled (check every %dh)\n", config.DefaultCheckIntervalHrs)
+			return
+		case "disable":
+			if err := config.SetAutoUpdate(false); err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("Auto-update disabled")
+			return
+		case "status":
+			fmt.Printf("Auto-update: %s\n", config.FormatStatus())
+			avail, latest, err := update.CheckForUpdates()
+			if err == nil && avail {
+				fmt.Printf("Update available: %s -> %s\n", update.GetCurrentVersion(), latest)
+			} else if err == nil {
+				fmt.Println("You are running the latest version")
+			}
+			return
+		}
+	}
+
+	// Default: perform manual update
 	if err := update.Update(); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -95,6 +127,12 @@ func handleUpdate() {
 }
 
 func handleStart() {
+	// Auto-update check (respects cooldown interval, never blocks start)
+	if config.ShouldCheck() {
+		config.RecordCheck()
+		update.AutoUpdate()
+	}
+
 	// Check for --force flag
 	force := false
 	for _, arg := range os.Args[2:] {
@@ -205,8 +243,27 @@ func handleStatus() {
 		serviceColor = red
 		serviceHint = fmt.Sprintf(" %s(run 'sudo tarish service enable')%s", gray, reset)
 	}
-	fmt.Printf("\n  %sAuto-start:       %s%s%s%s%s\n\n",
+	fmt.Printf("\n  %sAuto-start:       %s%s%s%s%s\n",
 		yellow, reset, serviceColor, serviceStatus, reset, serviceHint)
+
+	// Show auto-update status
+	autoUpdateLabel := config.FormatStatus()
+	autoUpdateColor := red
+	autoUpdateHint := fmt.Sprintf(" %s(run 'tarish update enable')%s", gray, reset)
+	if config.IsAutoUpdateEnabled() {
+		autoUpdateColor = green
+		autoUpdateHint = ""
+	}
+	fmt.Printf("  %sAuto-update:      %s%s%s%s%s\n",
+		yellow, reset, autoUpdateColor, autoUpdateLabel, reset, autoUpdateHint)
+
+	// Check for available updates (non-blocking, best-effort)
+	if avail, latest, err := update.CheckForUpdates(); err == nil && avail {
+		fmt.Printf("\n  %s%s! Update available: %s -> %s%s  %s(run 'tarish update')%s\n",
+			bold, yellow, update.GetCurrentVersion(), latest, reset, gray, reset)
+	}
+
+	fmt.Println()
 }
 
 func handleService() {
@@ -320,6 +377,9 @@ func printHelp() {
     %sinstall, i%s       Install tarish to /usr/local/bin
     %suninstall, un%s    Uninstall tarish from the system
     %supdate, u%s        Update tarish to latest version
+    %supdate enable%s    Enable auto-update on start
+    %supdate disable%s   Disable auto-update
+    %supdate status%s    Show auto-update status
 
     %sstart, st%s        Start mining with auto-detected config
                      %sUse --force to kill existing process%s
@@ -348,6 +408,9 @@ func printHelp() {
 		bold, cyan, reset,
 		yellow, reset,
 		yellow, reset,
+		green, reset,
+		green, reset,
+		green, reset,
 		green, reset,
 		green, reset,
 		green, reset,
