@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 // Guard represents an anti-sleep guard that prevents system sleep
@@ -74,7 +75,7 @@ func killSystemProcess() {
 	case "darwin":
 		exec.Command("pkill", "-f", "caffeinate -dim").Run()
 	case "linux":
-		exec.Command("pkill", "-f", "systemd-inhibit.*tarish").Run()
+		exec.Command("pkill", "-f", "systemd-inhibit.*tarish.*sleep").Run()
 	}
 }
 
@@ -108,7 +109,7 @@ func isActiveOnSystem() bool {
 		out, err := exec.Command("pgrep", "-f", "caffeinate -dim").Output()
 		return err == nil && len(strings.TrimSpace(string(out))) > 0
 	case "linux":
-		out, err := exec.Command("pgrep", "-f", "systemd-inhibit.*tarish").Output()
+		out, err := exec.Command("pgrep", "-f", "systemd-inhibit.*tarish.*sleep").Output()
 		return err == nil && len(strings.TrimSpace(string(out))) > 0
 	}
 	return false
@@ -157,7 +158,7 @@ func (g *Guard) enableLinux() error {
 
 	// Check if systemd-inhibit is available
 	if _, err := exec.LookPath("systemd-inhibit"); err != nil {
-		// Fallback: try to use /sys/power/wake_lock (requires root)
+		// Fallback for systems without systemd
 		return g.enableLinuxLegacy()
 	}
 
@@ -166,15 +167,18 @@ func (g *Guard) enableLinux() error {
 	// --who=tarish - identify the inhibitor
 	// --why="Mining in progress" - reason for inhibition
 	// --mode=block - block sleep completely
-	// cat - keep the process running
+	// sleep infinity - keep the inhibitor alive without depending on stdin
 	cmd := exec.Command(
 		"systemd-inhibit",
 		"--what=idle:sleep:handle-lid-switch",
 		"--who=tarish",
 		"--why=Mining in progress - 24/7 operation required",
 		"--mode=block",
-		"cat", // Keep running indefinitely
+		"sleep", "infinity",
 	)
+
+	// Detach from stdin so it works in service/non-interactive contexts
+	cmd.Stdin = nil
 
 	// Set process group for clean termination
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -188,9 +192,28 @@ func (g *Guard) enableLinux() error {
 	g.cmd = cmd
 	g.active = true
 
-	// Monitor process in background
+	// Verify it didn't exit immediately (e.g. D-Bus/polkit failure)
+	exited := make(chan error, 1)
 	go func() {
-		cmd.Wait()
+		exited <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-exited:
+		// Process exited right away -- systemd-inhibit failed
+		g.active = false
+		g.cmd = nil
+		if err != nil {
+			return fmt.Errorf("systemd-inhibit exited immediately: %w", err)
+		}
+		return fmt.Errorf("systemd-inhibit exited immediately")
+	case <-time.After(250 * time.Millisecond):
+		// Still running after 250ms -- good, it's holding the lock
+	}
+
+	// Monitor for later exit in background
+	go func() {
+		<-exited
 		g.mu.Lock()
 		g.active = false
 		g.mu.Unlock()
