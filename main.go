@@ -36,12 +36,17 @@ func main() {
 
 	command := strings.ToLower(os.Args[1])
 
-	// Periodic auto-update check for operational commands (respects 6h cooldown)
+	// Periodic auto-update check for operational commands (respects 6h cooldown).
+	// Only record the check on success (up-to-date or updated) so that
+	// transient failures (network, permissions) retry on the next invocation
+	// instead of waiting another full interval.
 	switch command {
 	case "start", "st", "status", "stop", "sp", "info":
 		if config.ShouldCheck() {
-			config.RecordCheck()
-			update.AutoUpdate()
+			result := update.AutoUpdate()
+			if result == update.AutoUpdateNoChange || result == update.AutoUpdateApplied {
+				config.RecordCheck()
+			}
 		}
 	}
 

@@ -43,29 +43,45 @@ func Update() error {
 	return downloadAndReplace()
 }
 
-// AutoUpdate silently checks and updates if auto-update is enabled.
-// Returns true if the binary was replaced (caller may want to note this).
-// Errors are swallowed -- auto-update must never block normal operation.
-func AutoUpdate() bool {
+// AutoUpdateResult represents the outcome of an auto-update attempt.
+type AutoUpdateResult int
+
+const (
+	AutoUpdateNoChange AutoUpdateResult = iota // checked successfully, already up-to-date
+	AutoUpdateApplied                          // successfully downloaded and replaced binary
+	AutoUpdateFailed                           // update available but download/replace failed
+	AutoUpdateSkipped                          // skipped (dev build)
+	AutoUpdateCheckErr                         // could not reach version server
+)
+
+// AutoUpdate silently checks and updates if a new version is available.
+// The caller should use the result to decide whether to record the check
+// timestamp: record on NoChange/Applied so the cooldown starts; skip
+// recording on Failed/CheckErr so the next invocation retries immediately.
+func AutoUpdate() AutoUpdateResult {
 	currentVersion := GetCurrentVersion()
 	if currentVersion == "dev" {
-		return false
+		return AutoUpdateSkipped
 	}
 
 	latestVersion, err := getLatestVersion()
-	if err != nil || latestVersion == currentVersion {
-		return false
+	if err != nil {
+		return AutoUpdateCheckErr
+	}
+
+	if latestVersion == currentVersion {
+		return AutoUpdateNoChange
 	}
 
 	fmt.Printf("Auto-updating tarish %s -> %s ...\n", currentVersion, latestVersion)
 
 	if err := downloadAndReplace(); err != nil {
 		fmt.Printf("Auto-update failed: %v (continuing)\n", err)
-		return false
+		return AutoUpdateFailed
 	}
 
 	fmt.Println("Auto-update complete. New version active on next invocation.")
-	return true
+	return AutoUpdateApplied
 }
 
 // downloadAndReplace fetches the platform binary and replaces the current one
