@@ -18,6 +18,7 @@ type Config struct {
 	AutoUpdate         bool   `json:"auto_update"`
 	CheckIntervalHours int    `json:"check_interval_hours,omitempty"` // default 6
 	LastChecked        string `json:"last_checked,omitempty"`         // RFC3339
+	TLSXmrigProxy      *bool  `json:"tls-xmrig-proxy,omitempty"`     // default true
 }
 
 // configDir returns ~/.local/share/tarish (user-wide, same as install share on Linux/macOS)
@@ -154,4 +155,29 @@ func FormatStatus() string {
 		hrs = DefaultCheckIntervalHrs
 	}
 	return fmt.Sprintf("enabled (every %dh)", hrs)
+}
+
+// IsTLSXmrigProxyEnabled returns whether TLS to xmrig-proxy is enabled.
+// Defaults to true when the setting is absent from the config.
+func IsTLSXmrigProxyEnabled() bool {
+	cfg := Load()
+	if cfg.TLSXmrigProxy == nil {
+		return true // enabled by default
+	}
+	return *cfg.TLSXmrigProxy
+}
+
+// SetTLSXmrigProxy persists the TLS xmrig-proxy preference
+func SetTLSXmrigProxy(enabled bool) error {
+	cfg := Load()
+	cfg.TLSXmrigProxy = &enabled
+	return Save(cfg)
+}
+
+// FormatTLSStatus returns a human-readable summary of the TLS xmrig-proxy config
+func FormatTLSStatus() string {
+	if IsTLSXmrigProxyEnabled() {
+		return "enabled"
+	}
+	return "disabled"
 }

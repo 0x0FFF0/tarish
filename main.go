@@ -60,6 +60,8 @@ func main() {
 		handleStatus()
 	case "service":
 		handleService()
+	case "tls":
+		handleTLS()
 	case "help", "h", "-h", "--help":
 		printHelp()
 	case "version", "v", "-v", "--version":
@@ -194,6 +196,13 @@ func handleStart() {
 	}
 	fmt.Printf("  XMRig: %s (v%s)\n", binaryInfo.Path, binaryInfo.Version)
 
+	// Show TLS status
+	if config.IsTLSXmrigProxyEnabled() {
+		fmt.Printf("  TLS: enabled (stratum+ssl port 2083, fallback port 3333)\n")
+	} else {
+		fmt.Printf("  TLS: disabled (plain stratum port 3333)\n")
+	}
+
 	// Prepare runtime config with api.id and worker-id
 	runtimeConfigPath, err := xmrig.PrepareRuntimeConfig(configPath, cpuInfo)
 	if err != nil {
@@ -260,6 +269,17 @@ func handleStatus() {
 	fmt.Printf("  %sAuto-update:      %s%s%s%s%s\n",
 		yellow, reset, autoUpdateColor, autoUpdateLabel, reset, autoUpdateHint)
 
+	// Show TLS xmrig-proxy status
+	tlsLabel := config.FormatTLSStatus()
+	tlsColor := red
+	tlsHint := fmt.Sprintf(" %s(run 'tarish tls enable')%s", gray, reset)
+	if config.IsTLSXmrigProxyEnabled() {
+		tlsColor = green
+		tlsHint = ""
+	}
+	fmt.Printf("  %sTLS xmrig-proxy:  %s%s%s%s%s\n",
+		yellow, reset, tlsColor, tlsLabel, reset, tlsHint)
+
 	// Check for available updates (non-blocking, best-effort)
 	if avail, latest, err := update.CheckForUpdates(); err == nil && avail {
 		fmt.Printf("\n  %s%s! Update available: %s -> %s%s  %s(run 'tarish update')%s\n",
@@ -302,6 +322,39 @@ func handleService() {
 	default:
 		fmt.Printf("Unknown service command: %s\n", subcommand)
 		fmt.Println("Usage: tarish service <enable|disable|status>")
+		os.Exit(1)
+	}
+}
+
+func handleTLS() {
+	if len(os.Args) < 3 {
+		fmt.Printf("TLS xmrig-proxy: %s\n", config.FormatTLSStatus())
+		fmt.Println("\nUsage: tarish tls <enable|disable|status>")
+		return
+	}
+
+	sub := strings.ToLower(os.Args[2])
+	switch sub {
+	case "enable":
+		if err := config.SetTLSXmrigProxy(true); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("TLS xmrig-proxy enabled (stratum+ssl on port 2083)")
+		fmt.Println("  Non-TLS fallback on port 3333 will be used if TLS fails")
+		fmt.Println("  Restart mining for changes to take effect: tarish start --force")
+	case "disable":
+		if err := config.SetTLSXmrigProxy(false); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("TLS xmrig-proxy disabled (plain stratum on port 3333)")
+		fmt.Println("  Restart mining for changes to take effect: tarish start --force")
+	case "status":
+		fmt.Printf("TLS xmrig-proxy: %s\n", config.FormatTLSStatus())
+	default:
+		fmt.Printf("Unknown tls command: %s\n", sub)
+		fmt.Println("Usage: tarish tls <enable|disable|status>")
 		os.Exit(1)
 	}
 }
@@ -393,6 +446,10 @@ func printHelp() {
     %sservice disable%s  Disable auto-start on boot
     %sservice status%s   Show auto-start status
 
+    %stls%s              Show TLS xmrig-proxy status
+    %stls enable%s       Enable TLS to xmrig-proxy (default)
+    %stls disable%s      Disable TLS, use plain stratum
+
     %sinfo%s             Show system and configuration info
     %shelp, h%s          Show this help message
     %sversion, v%s       Show version information
@@ -419,6 +476,9 @@ func printHelp() {
 		green, reset,
 		green, reset,
 		gray, reset,
+		green, reset,
+		green, reset,
+		green, reset,
 		green, reset,
 		green, reset,
 		green, reset,
