@@ -36,6 +36,15 @@ func main() {
 
 	command := strings.ToLower(os.Args[1])
 
+	// Periodic auto-update check for operational commands (respects 6h cooldown)
+	switch command {
+	case "start", "st", "status", "stop", "sp", "info":
+		if config.ShouldCheck() {
+			config.RecordCheck()
+			update.AutoUpdate()
+		}
+	}
+
 	switch command {
 	case "install", "i":
 		handleInstall()
@@ -127,12 +136,6 @@ func handleUpdate() {
 }
 
 func handleStart() {
-	// Auto-update check (respects cooldown interval, never blocks start)
-	if config.ShouldCheck() {
-		config.RecordCheck()
-		update.AutoUpdate()
-	}
-
 	// Check for --force flag
 	force := false
 	for _, arg := range os.Args[2:] {

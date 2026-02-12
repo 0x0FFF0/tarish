@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	configFileName           = "config.json"
+	configFileName          = "tarish.json"
 	DefaultCheckIntervalHrs = 6
 )
 
@@ -20,13 +20,13 @@ type Config struct {
 	LastChecked        string `json:"last_checked,omitempty"`         // RFC3339
 }
 
-// configDir returns ~/.tarish (shared with install data dir)
+// configDir returns ~/.local/share/tarish (user-wide, same as install share on Linux/macOS)
 func configDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".tarish"), nil
+	return filepath.Join(home, ".local", "share", "tarish"), nil
 }
 
 func configPath() (string, error) {
@@ -37,7 +37,17 @@ func configPath() (string, error) {
 	return filepath.Join(dir, configFileName), nil
 }
 
-// Load reads config from disk; returns defaults on any error
+// legacyConfigPath returns the old location for one-time migration
+func legacyConfigPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".tarish", "config.json"), nil
+}
+
+// Load reads config from disk; returns defaults on any error.
+// If the new path does not exist, migrates from ~/.tarish/config.json once.
 func Load() *Config {
 	path, err := configPath()
 	if err != nil {
@@ -46,6 +56,17 @@ func Load() *Config {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
+		// One-time migration from legacy path
+		if legacyPath, lerr := legacyConfigPath(); lerr == nil {
+			if legacyData, lread := os.ReadFile(legacyPath); lread == nil {
+				var cfg Config
+				if json.Unmarshal(legacyData, &cfg) == nil {
+					_ = Save(&cfg) // write to new path
+					_ = os.Remove(legacyPath)
+					return &cfg
+				}
+			}
+		}
 		return &Config{}
 	}
 
