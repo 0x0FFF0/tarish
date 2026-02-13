@@ -80,6 +80,7 @@ func AutoUpdate() AutoUpdateResult {
 		return AutoUpdateFailed
 	}
 
+	Version = latestVersion // update in-memory so the rest of this invocation sees the new version
 	fmt.Println("Auto-update complete. New version active on next invocation.")
 	return AutoUpdateApplied
 }

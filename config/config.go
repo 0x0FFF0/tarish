@@ -10,7 +10,7 @@ import (
 
 const (
 	configFileName          = "tarish.json"
-	DefaultCheckIntervalHrs = 6
+	DefaultCheckIntervalHrs = 2
 )
 
 // Config holds persistent tarish settings
@@ -21,8 +21,8 @@ type Config struct {
 	TLSXmrigProxy      *bool  `json:"tls-xmrig-proxy,omitempty"`     // default true
 }
 
-// configDir returns ~/.local/share/tarish (user-wide, same as install share on Linux/macOS)
-func configDir() (string, error) {
+// ConfigDir returns ~/.local/share/tarish (user-wide, same as install share on Linux/macOS)
+func ConfigDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -31,7 +31,7 @@ func configDir() (string, error) {
 }
 
 func configPath() (string, error) {
-	dir, err := configDir()
+	dir, err := ConfigDir()
 	if err != nil {
 		return "", err
 	}
@@ -80,7 +80,7 @@ func Load() *Config {
 
 // Save writes config to disk
 func Save(cfg *Config) error {
-	dir, err := configDir()
+	dir, err := ConfigDir()
 	if err != nil {
 		return err
 	}
@@ -119,6 +119,11 @@ func (c *Config) checkInterval() time.Duration {
 		hrs = DefaultCheckIntervalHrs
 	}
 	return time.Duration(hrs) * time.Hour
+}
+
+// GetCheckInterval returns the configured auto-update check interval.
+func GetCheckInterval() time.Duration {
+	return Load().checkInterval()
 }
 
 // ShouldCheck returns true if auto-update is enabled and the cooldown has elapsed

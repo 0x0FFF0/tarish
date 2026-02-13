@@ -36,18 +36,11 @@ func main() {
 
 	command := strings.ToLower(os.Args[1])
 
-	// Periodic auto-update check for operational commands (respects 6h cooldown).
-	// Only record the check on success (up-to-date or updated) so that
-	// transient failures (network, permissions) retry on the next invocation
-	// instead of waiting another full interval.
 	switch command {
-	case "start", "st", "status", "stop", "sp", "info":
-		if config.ShouldCheck() {
-			result := update.AutoUpdate()
-			if result == update.AutoUpdateNoChange || result == update.AutoUpdateApplied {
-				config.RecordCheck()
-			}
-		}
+	case "_update-daemon":
+		// Hidden internal command: runs the auto-update background loop.
+		update.RunDaemon()
+		return
 	}
 
 	switch command {
@@ -115,16 +108,28 @@ func handleUpdate() {
 				os.Exit(1)
 			}
 			fmt.Printf("Auto-update enabled (check every %dh)\n", config.DefaultCheckIntervalHrs)
+			// Start daemon immediately so it begins checking
+			if err := update.StartDaemon(); err != nil {
+				fmt.Printf("Warning: failed to start auto-update daemon: %v\n", err)
+			} else {
+				fmt.Println("Auto-update daemon started")
+			}
 			return
 		case "disable":
+			update.StopDaemon()
 			if err := config.SetAutoUpdate(false); err != nil {
 				fmt.Printf("Error: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Println("Auto-update disabled")
+			fmt.Println("Auto-update disabled (daemon stopped)")
 			return
 		case "status":
 			fmt.Printf("Auto-update: %s\n", config.FormatStatus())
+			if _, running := update.IsDaemonRunning(); running {
+				fmt.Println("Daemon:      running")
+			} else if config.IsAutoUpdateEnabled() {
+				fmt.Println("Daemon:      not running (will start on next 'tarish start')")
+			}
 			avail, latest, err := update.CheckForUpdates()
 			if err == nil && avail {
 				fmt.Printf("Update available: %s -> %s\n", update.GetCurrentVersion(), latest)
@@ -223,9 +228,21 @@ func handleStart() {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Start auto-update daemon if enabled
+	if config.IsAutoUpdateEnabled() {
+		if err := update.StartDaemon(); err != nil {
+			fmt.Printf("Warning: failed to start auto-update daemon: %v\n", err)
+		} else {
+			fmt.Println("Auto-update daemon started")
+		}
+	}
 }
 
 func handleStop() {
+	// Stop auto-update daemon first
+	update.StopDaemon()
+
 	if err := xmrig.Stop(); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -285,10 +302,22 @@ func handleStatus() {
 	fmt.Printf("  %sTLS xmrig-proxy:  %s%s%s%s%s\n",
 		yellow, reset, tlsColor, tlsLabel, reset, tlsHint)
 
-	// Check for available updates (non-blocking, best-effort)
+	// Check for available updates (non-blocking, best-effort).
+	// The auto-update daemon handles applying updates in the background;
+	// this is purely informational for the user.
 	if avail, latest, err := update.CheckForUpdates(); err == nil && avail {
-		fmt.Printf("\n  %s%s! Update available: %s -> %s%s  %s(run 'tarish update')%s\n",
-			bold, yellow, update.GetCurrentVersion(), latest, reset, gray, reset)
+		if config.IsAutoUpdateEnabled() {
+			if _, running := update.IsDaemonRunning(); running {
+				fmt.Printf("\n  %s%s! Update available: %s -> %s%s  %s(daemon will apply automatically)%s\n",
+					bold, yellow, update.GetCurrentVersion(), latest, reset, gray, reset)
+			} else {
+				fmt.Printf("\n  %s%s! Update available: %s -> %s%s  %s(run 'tarish update' or restart to launch daemon)%s\n",
+					bold, yellow, update.GetCurrentVersion(), latest, reset, gray, reset)
+			}
+		} else {
+			fmt.Printf("\n  %s%s! Update available: %s -> %s%s  %s(run 'tarish update')%s\n",
+				bold, yellow, update.GetCurrentVersion(), latest, reset, gray, reset)
+		}
 	}
 
 	fmt.Println()
