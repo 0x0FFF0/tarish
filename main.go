@@ -43,6 +43,20 @@ func main() {
 		return
 	}
 
+	// If auto-update is enabled, apply updates opportunistically on any
+	// operational command -- no cooldown.  The daemon handles periodic
+	// background checks; this covers the case where the user runs a
+	// command and an update happens to be available right now.
+	switch command {
+	case "start", "st", "status", "stop", "sp", "info":
+		if config.IsAutoUpdateEnabled() {
+			result := update.AutoUpdate()
+			if result == update.AutoUpdateApplied || result == update.AutoUpdateNoChange {
+				config.RecordCheck()
+			}
+		}
+	}
+
 	switch command {
 	case "install", "i":
 		handleInstall()
@@ -303,17 +317,14 @@ func handleStatus() {
 		yellow, reset, tlsColor, tlsLabel, reset, tlsHint)
 
 	// Check for available updates (non-blocking, best-effort).
-	// The auto-update daemon handles applying updates in the background;
-	// this is purely informational for the user.
+	// If auto-update is enabled the update was already applied above, so
+	// the in-memory Version will match and this won't trigger.  The banner
+	// only appears when auto-update is off or the update failed to apply.
 	if avail, latest, err := update.CheckForUpdates(); err == nil && avail {
 		if config.IsAutoUpdateEnabled() {
-			if _, running := update.IsDaemonRunning(); running {
-				fmt.Printf("\n  %s%s! Update available: %s -> %s%s  %s(daemon will apply automatically)%s\n",
-					bold, yellow, update.GetCurrentVersion(), latest, reset, gray, reset)
-			} else {
-				fmt.Printf("\n  %s%s! Update available: %s -> %s%s  %s(run 'tarish update' or restart to launch daemon)%s\n",
-					bold, yellow, update.GetCurrentVersion(), latest, reset, gray, reset)
-			}
+			// Auto-update is on but the update wasn't applied (download/replace failed).
+			fmt.Printf("\n  %s%s! Update available: %s -> %s%s  %s(auto-update failed, run 'tarish update' manually)%s\n",
+				bold, yellow, update.GetCurrentVersion(), latest, reset, gray, reset)
 		} else {
 			fmt.Printf("\n  %s%s! Update available: %s -> %s%s  %s(run 'tarish update')%s\n",
 				bold, yellow, update.GetCurrentVersion(), latest, reset, gray, reset)
