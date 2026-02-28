@@ -227,17 +227,34 @@ func determineFamily(model string) string {
 				return "amd_threadripper"
 			}
 			// Check for specific Ryzen 9 models first
+			// NOTE: XT variants MUST be checked before X variants
+			// because "5900xt" contains "5900x" as a substring.
+			if strings.Contains(modelLower, "9950xt") {
+				return "9950xt"
+			}
 			if strings.Contains(modelLower, "9950x") {
 				return "9950x"
+			}
+			if strings.Contains(modelLower, "9900xt") {
+				return "9900xt"
 			}
 			if strings.Contains(modelLower, "9900x") {
 				return "9900x"
 			}
+			if strings.Contains(modelLower, "7950xt") {
+				return "7950xt"
+			}
 			if strings.Contains(modelLower, "7950x") {
 				return "7950x"
 			}
+			if strings.Contains(modelLower, "5950xt") {
+				return "5950xt"
+			}
 			if strings.Contains(modelLower, "5950x") {
 				return "5950x"
+			}
+			if strings.Contains(modelLower, "5900xt") {
+				return "5900xt"
 			}
 			if strings.Contains(modelLower, "5900x") {
 				return "5900x"
