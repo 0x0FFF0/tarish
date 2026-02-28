@@ -1,0 +1,18 @@
+# Binaries
+tarish
+dist/
+server/tarish-server
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+server/tarish.db
+server/tarish.db-shm
+server/tarish.db-wal
+
+# Server build artifacts
+server/web/dist/
+
+# OS
+.DS_Store
