@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"tarish/agent"
 	"tarish/config"
 	"tarish/cpu"
 	"tarish/embedded"
@@ -41,6 +42,11 @@ func main() {
 		// Hidden internal command: runs the auto-update background loop.
 		update.RunDaemon()
 		return
+	case "_agent-daemon":
+		// Hidden internal command: runs the agent reporting loop.
+		agent.Version = Version
+		agent.RunDaemon()
+		return
 	}
 
 	// If auto-update is enabled, apply updates opportunistically on any
@@ -74,6 +80,8 @@ func main() {
 		handleService()
 	case "tls":
 		handleTLS()
+	case "server":
+		handleServer()
 	case "help", "h", "-h", "--help":
 		printHelp()
 	case "version", "v", "-v", "--version":
@@ -243,6 +251,11 @@ func handleStart() {
 		os.Exit(1)
 	}
 
+	// Start agent reporting daemon
+	if err := agent.StartDaemon(); err != nil {
+		fmt.Printf("Warning: failed to start agent daemon: %v\n", err)
+	}
+
 	// Start auto-update daemon if enabled
 	if config.IsAutoUpdateEnabled() {
 		if err := update.StartDaemon(); err != nil {
@@ -254,7 +267,10 @@ func handleStart() {
 }
 
 func handleStop() {
-	// Stop auto-update daemon first
+	// Stop agent daemon
+	agent.StopDaemon()
+
+	// Stop auto-update daemon
 	update.StopDaemon()
 
 	if err := xmrig.Stop(); err != nil {
@@ -304,6 +320,21 @@ func handleStatus() {
 	}
 	fmt.Printf("  %sAuto-update:      %s%s%s%s%s\n",
 		yellow, reset, autoUpdateColor, autoUpdateLabel, reset, autoUpdateHint)
+
+	// Show agent daemon status
+	if pid, running := agent.IsDaemonRunning(); running {
+		fmt.Printf("  %sAgent:            %s%s%srunning (pid %d)%s\n",
+			yellow, reset, bold, green, pid, reset)
+	} else {
+		agentHint := ""
+		if config.GetServerURL() == "" {
+			agentHint = fmt.Sprintf(" %s(run 'tarish server set <url>' first)%s", gray, reset)
+		} else {
+			agentHint = fmt.Sprintf(" %s(will start on next 'tarish start')%s", gray, reset)
+		}
+		fmt.Printf("  %sAgent:            %s%snot running%s%s\n",
+			yellow, reset, red, reset, agentHint)
+	}
 
 	// Show TLS xmrig-proxy status
 	tlsLabel := config.FormatTLSStatus()
@@ -404,6 +435,64 @@ func handleTLS() {
 	}
 }
 
+func handleServer() {
+	if len(os.Args) < 3 {
+		url := config.GetServerURL()
+		if url == "" {
+			fmt.Println("Server URL: (not configured)")
+		} else {
+			fmt.Printf("Server URL: %s\n", url)
+		}
+		fmt.Println("\nUsage: tarish server <set|agent-key|status>")
+		fmt.Println("  tarish server set <url>          Set server URL")
+		fmt.Println("  tarish server agent-key <key>    Set agent key for server auth")
+		fmt.Println("  tarish server status             Show server config")
+		return
+	}
+
+	sub := strings.ToLower(os.Args[2])
+	switch sub {
+	case "set":
+		if len(os.Args) < 4 {
+			fmt.Println("Usage: tarish server set <url>")
+			os.Exit(1)
+		}
+		url := os.Args[3]
+		if err := config.SetServerURL(url); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Server URL set to: %s\n", url)
+	case "agent-key", "key":
+		if len(os.Args) < 4 {
+			fmt.Println("Usage: tarish server agent-key <key>")
+			os.Exit(1)
+		}
+		key := os.Args[3]
+		if err := config.SetServerAgentKey(key); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Agent key set")
+	case "status":
+		url := config.GetServerURL()
+		key := config.GetServerAgentKey()
+		if url == "" {
+			fmt.Println("Server URL: (not configured)")
+		} else {
+			fmt.Printf("Server URL: %s\n", url)
+		}
+		if key == "" {
+			fmt.Println("Agent Key:  (not set)")
+		} else {
+			fmt.Printf("Agent Key:  %s...%s\n", key[:3], key[len(key)-3:])
+		}
+	default:
+		fmt.Printf("Unknown server command: %s\n", sub)
+		os.Exit(1)
+	}
+}
+
 func handleInfo() {
 	// Print system info
 	fmt.Println("=== System Information ===")
@@ -495,6 +584,10 @@ func printHelp() {
     %stls enable%s       Enable TLS to xmrig-proxy (default)
     %stls disable%s      Disable TLS, use plain stratum
 
+    %sserver set <url>%s       Set dashboard server URL
+    %sserver agent-key <key>%s Set agent key for server auth
+    %sserver status%s          Show dashboard server config
+
     %sinfo%s             Show system and configuration info
     %shelp, h%s          Show this help message
     %sversion, v%s       Show version information
@@ -521,6 +614,9 @@ func printHelp() {
 		green, reset,
 		green, reset,
 		gray, reset,
+		green, reset,
+		green, reset,
+		green, reset,
 		green, reset,
 		green, reset,
 		green, reset,

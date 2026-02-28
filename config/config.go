@@ -19,6 +19,9 @@ type Config struct {
 	CheckIntervalHours int    `json:"check_interval_hours,omitempty"` // default 6
 	LastChecked        string `json:"last_checked,omitempty"`         // RFC3339
 	TLSXmrigProxy      *bool  `json:"tls-xmrig-proxy,omitempty"`     // default true
+	ServerURL          string `json:"server_url,omitempty"`
+	ServerAgentKey     string `json:"server_agent_key,omitempty"`
+	ServerAPIKey       string `json:"server_api_key,omitempty"` // deprecated, migrated to server_agent_key
 }
 
 // ConfigDir returns ~/.local/share/tarish (user-wide, same as install share on Linux/macOS)
@@ -74,6 +77,12 @@ func Load() *Config {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return &Config{}
+	}
+	// Migrate deprecated server_api_key -> server_agent_key
+	if cfg.ServerAgentKey == "" && cfg.ServerAPIKey != "" {
+		cfg.ServerAgentKey = cfg.ServerAPIKey
+		cfg.ServerAPIKey = ""
+		_ = Save(&cfg)
 	}
 	return &cfg
 }
@@ -186,3 +195,33 @@ func FormatTLSStatus() string {
 	}
 	return "disabled"
 }
+
+// GetServerURL returns the configured tarish server URL (empty if not set)
+func GetServerURL() string {
+	return Load().ServerURL
+}
+
+// SetServerURL persists the tarish server URL
+func SetServerURL(url string) error {
+	cfg := Load()
+	cfg.ServerURL = url
+	return Save(cfg)
+}
+
+// GetServerAgentKey returns the configured agent key for server auth
+func GetServerAgentKey() string {
+	return Load().ServerAgentKey
+}
+
+// SetServerAgentKey persists the agent key for server authentication
+func SetServerAgentKey(key string) error {
+	cfg := Load()
+	cfg.ServerAgentKey = key
+	return Save(cfg)
+}
+
+// GetServerAPIKey is deprecated, use GetServerAgentKey
+func GetServerAPIKey() string { return GetServerAgentKey() }
+
+// SetServerAPIKey is deprecated, use SetServerAgentKey
+func SetServerAPIKey(key string) error { return SetServerAgentKey(key) }
