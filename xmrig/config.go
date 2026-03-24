@@ -50,6 +50,12 @@ type HTTPConfig struct {
 	Restricted  bool   `json:"restricted"`
 }
 
+const defaultHTTPPort = 8181
+
+var listenPort = func(host string, port int) (net.Listener, error) {
+	return net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+}
+
 // SelectConfig finds the most appropriate config file for the detected CPU.
 // If no static config file matches, it generates a generic config based on core count.
 func SelectConfig(cpuInfo *cpu.Info, configsPath string) (string, error) {
@@ -552,6 +558,10 @@ func PrepareRuntimeConfig(configPath string, cpuInfo *cpu.Info) (string, error) 
 	// Apply TLS xmrig-proxy settings based on tarish config
 	applyTLSPoolSettings(raw)
 
+	if err := normalizeHTTPConfig(raw); err != nil {
+		return "", err
+	}
+
 	// Keep xmrig's internal log-file aligned with Tarish's active log path so
 	// the HTTP API fallback reads the same log the miner writes.
 	raw["log-file"] = GetLogFile()
@@ -570,6 +580,69 @@ func PrepareRuntimeConfig(configPath string, cpuInfo *cpu.Info) (string, error) 
 	os.Chmod(runtimePath, 0666)
 
 	return runtimePath, nil
+}
+
+func normalizeHTTPConfig(raw map[string]interface{}) error {
+	httpSection, ok := raw["http"].(map[string]interface{})
+	if !ok {
+		httpSection = make(map[string]interface{})
+		raw["http"] = httpSection
+	}
+
+	host, _ := httpSection["host"].(string)
+	if strings.TrimSpace(host) == "" {
+		host = "0.0.0.0"
+		httpSection["host"] = host
+	}
+
+	port := defaultHTTPPort
+	if p, ok := httpSection["port"].(float64); ok && int(p) > 0 {
+		port = int(p)
+	}
+
+	selectedPort, err := chooseAvailablePort(host, port)
+	if err != nil {
+		return fmt.Errorf("failed to reserve xmrig HTTP API port: %w", err)
+	}
+	httpSection["port"] = selectedPort
+
+	return nil
+}
+
+func chooseAvailablePort(host string, preferredPort int) (int, error) {
+	if preferredPort <= 0 {
+		preferredPort = defaultHTTPPort
+	}
+
+	if canListen(host, preferredPort) {
+		return preferredPort, nil
+	}
+
+	ephemeral, err := listenOnPort(host, 0)
+	if err != nil {
+		return 0, err
+	}
+	defer ephemeral.Close()
+
+	addr, ok := ephemeral.Addr().(*net.TCPAddr)
+	if !ok || addr.Port == 0 {
+		return 0, fmt.Errorf("could not determine allocated port")
+	}
+
+	return addr.Port, nil
+}
+
+func canListen(host string, port int) bool {
+	ln, err := listenPort(host, port)
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
+}
+
+func listenOnPort(host string, port int) (net.Listener, error) {
+	return listenPort(host, port)
 }
 
 // applyTLSPoolSettings modifies the pools section of a raw xmrig config
@@ -674,7 +747,7 @@ func getLocalIP() string {
 // GetHTTPConfigFromRuntime reads port and access-token from the active config.
 // It checks the runtime config first, then falls back to the system-selected config.
 func GetHTTPConfigFromRuntime() (port int, accessToken string) {
-	port = 8181 // match config default
+	port = defaultHTTPPort
 	accessToken = ""
 
 	// Try runtime config first, then fall back to system-selected config
