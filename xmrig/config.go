@@ -16,9 +16,9 @@ import (
 
 // TLS connection constants for xmrig-proxy
 const (
-	TLSPoolURL        = "150.230.194.138:2083"
-	TLSFingerprint    = "099188DA1C047506DC139AE64CD24C916CE19C736764277B075C5BEC8B813C6F"
-	NonTLSPoolURL     = "150.230.194.138:3333"
+	TLSPoolURL     = "150.230.194.138:2083"
+	TLSFingerprint = "099188DA1C047506DC139AE64CD24C916CE19C736764277B075C5BEC8B813C6F"
+	NonTLSPoolURL  = "150.230.194.138:3333"
 )
 
 // Config represents the xmrig configuration structure (partial)
@@ -551,6 +551,10 @@ func PrepareRuntimeConfig(configPath string, cpuInfo *cpu.Info) (string, error) 
 
 	// Apply TLS xmrig-proxy settings based on tarish config
 	applyTLSPoolSettings(raw)
+
+	// Keep xmrig's internal log-file aligned with Tarish's active log path so
+	// the HTTP API fallback reads the same log the miner writes.
+	raw["log-file"] = GetLogFile()
 
 	// Write runtime config
 	runtimePath := GetRuntimeConfigPath()

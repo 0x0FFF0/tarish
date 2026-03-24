@@ -377,7 +377,67 @@ func getAPIStatus() (*APIResponse, error) {
 
 // parseLogFile extracts status information from the xmrig log file
 func parseLogFile() (*ProcessStatus, error) {
-	logFile := GetLogFile()
+	status := &ProcessStatus{}
+	var parsedAny bool
+	var lastErr error
+
+	for _, logFile := range getLogFileCandidates() {
+		logStatus, err := parseLogFileAtPath(logFile)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		parsedAny = true
+		mergeProcessStatus(status, logStatus)
+	}
+
+	if parsedAny {
+		return status, nil
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("no log files available")
+}
+
+func getLogFileCandidates() []string {
+	candidates := []string{}
+	seen := map[string]struct{}{}
+
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
+		candidates = append(candidates, path)
+	}
+
+	add(getConfiguredLogFile())
+	add(GetLogFile())
+
+	return candidates
+}
+
+func getConfiguredLogFile() string {
+	data, err := os.ReadFile(GetRuntimeConfigPath())
+	if err != nil {
+		return ""
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return ""
+	}
+
+	path, _ := raw["log-file"].(string)
+	return path
+}
+
+func parseLogFileAtPath(logFile string) (*ProcessStatus, error) {
 	file, err := os.Open(logFile)
 	if err != nil {
 		return nil, err
@@ -393,8 +453,7 @@ func parseLogFile() (*ProcessStatus, error) {
 	}
 
 	// Regex patterns
-	versionRe := regexp.MustCompile(`XMRig\s+(\d+\.\d+\.\d+)`)
-	hashrateRe := regexp.MustCompile(`speed\s+[\d.]+s/[\d.]+s/[\d.]+s\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)`)
+	versionRe := regexp.MustCompile(`XMRig(?:/|\s+)(\d+\.\d+\.\d+)`)
 	poolRe := regexp.MustCompile(`\[([^\]]+)\]\s+use\s+pool\s+(\S+)`)
 	donateRe := regexp.MustCompile(`donate\s+level:\s+(\d+)%`)
 	userRe := regexp.MustCompile(`\[([^\]]+)\]\s+login\s+(\S+)`)
@@ -404,15 +463,8 @@ func parseLogFile() (*ProcessStatus, error) {
 			status.Version = matches[1]
 		}
 
-		if matches := hashrateRe.FindStringSubmatch(line); len(matches) > 3 {
-			current, _ := strconv.ParseFloat(matches[1], 64)
-			avg, _ := strconv.ParseFloat(matches[2], 64)
-			max, _ := strconv.ParseFloat(matches[3], 64)
-			status.Hashrate = &HashrateInfo{
-				Current: current,
-				Average: avg,
-				Max:     max,
-			}
+		if hashrate := parseHashrateLine(line); hashrate != nil {
+			status.Hashrate = hashrate
 		}
 
 		if matches := poolRe.FindStringSubmatch(line); len(matches) > 2 {
@@ -436,6 +488,78 @@ func parseLogFile() (*ProcessStatus, error) {
 	}
 
 	return status, nil
+}
+
+func mergeProcessStatus(dst, src *ProcessStatus) {
+	if src == nil {
+		return
+	}
+	if dst.Version == "" && src.Version != "" {
+		dst.Version = src.Version
+	}
+	if dst.Hashrate == nil && src.Hashrate != nil {
+		dst.Hashrate = src.Hashrate
+	}
+	if dst.Pool == nil && src.Pool != nil {
+		dst.Pool = src.Pool
+	}
+	if dst.DonateLevel == 0 && src.DonateLevel > 0 {
+		dst.DonateLevel = src.DonateLevel
+	}
+}
+
+func parseHashrateLine(line string) *HashrateInfo {
+	idx := strings.Index(line, "speed")
+	if idx == -1 {
+		return nil
+	}
+
+	fields := strings.Fields(line[idx:])
+	if len(fields) < 5 || fields[0] != "speed" {
+		return nil
+	}
+
+	current, ok := parseHashrateValue(fields[2])
+	if !ok {
+		return nil
+	}
+
+	average, _ := parseHashrateValue(fields[3])
+
+	max := 0.0
+	for i := 4; i < len(fields)-1; i++ {
+		if fields[i] == "max" {
+			if parsed, ok := parseHashrateValue(fields[i+1]); ok {
+				max = parsed
+			}
+			break
+		}
+	}
+
+	if max == 0 {
+		if parsed, ok := parseHashrateValue(fields[4]); ok {
+			max = parsed
+		}
+	}
+
+	return &HashrateInfo{
+		Current: current,
+		Average: average,
+		Max:     max,
+	}
+}
+
+func parseHashrateValue(value string) (float64, bool) {
+	if strings.EqualFold(value, "n/a") {
+		return 0, false
+	}
+
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, false
+	}
+
+	return parsed, true
 }
 
 // tailFile reads the last n lines from a file
