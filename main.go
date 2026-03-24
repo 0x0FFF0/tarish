@@ -449,10 +449,12 @@ func handleServer() {
 		} else {
 			fmt.Printf("Server URL: %s\n", url)
 		}
-		fmt.Println("\nUsage: tarish server <set|agent-key|status>")
-		fmt.Println("  tarish server set <url>          Set server URL")
-		fmt.Println("  tarish server agent-key <key>    Set agent key for server auth")
-		fmt.Println("  tarish server status             Show server config")
+		fmt.Println("\nUsage: tarish server <set|agent-key|access-client-id|access-client-secret|status>")
+		fmt.Println("  tarish server set <url>                    Set server URL")
+		fmt.Println("  tarish server agent-key <key>              Set agent key for server auth")
+		fmt.Println("  tarish server access-client-id <id>        Set Cloudflare Access client ID")
+		fmt.Println("  tarish server access-client-secret <secret> Set Cloudflare Access client secret")
+		fmt.Println("  tarish server status                       Show server config")
 		return
 	}
 
@@ -480,9 +482,33 @@ func handleServer() {
 			os.Exit(1)
 		}
 		fmt.Println("Agent key set")
+	case "access-client-id":
+		if len(os.Args) < 4 {
+			fmt.Println("Usage: tarish server access-client-id <id>")
+			os.Exit(1)
+		}
+		id := os.Args[3]
+		if err := config.SetServerAccessClientID(id); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Cloudflare Access client ID set")
+	case "access-client-secret":
+		if len(os.Args) < 4 {
+			fmt.Println("Usage: tarish server access-client-secret <secret>")
+			os.Exit(1)
+		}
+		secret := os.Args[3]
+		if err := config.SetServerAccessClientSecret(secret); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Cloudflare Access client secret set")
 	case "status":
 		url := config.GetServerURL()
 		key := config.GetServerAgentKey()
+		accessClientID := config.GetServerAccessClientID()
+		accessClientSecret := config.GetServerAccessClientSecret()
 		if url == "" {
 			fmt.Println("Server URL: (not configured)")
 		} else {
@@ -491,12 +517,29 @@ func handleServer() {
 		if key == "" {
 			fmt.Println("Agent Key:  (not set)")
 		} else {
-			fmt.Printf("Agent Key:  %s...%s\n", key[:3], key[len(key)-3:])
+			fmt.Printf("Agent Key:  %s\n", maskSecret(key))
+		}
+		if accessClientID == "" {
+			fmt.Println("Access ID:  (not set)")
+		} else {
+			fmt.Printf("Access ID:  %s\n", maskSecret(accessClientID))
+		}
+		if accessClientSecret == "" {
+			fmt.Println("Access Secret: (not set)")
+		} else {
+			fmt.Printf("Access Secret: %s\n", maskSecret(accessClientSecret))
 		}
 	default:
 		fmt.Printf("Unknown server command: %s\n", sub)
 		os.Exit(1)
 	}
+}
+
+func maskSecret(value string) string {
+	if len(value) <= 6 {
+		return "***"
+	}
+	return value[:3] + "..." + value[len(value)-3:]
 }
 
 func handleInfo() {
@@ -590,9 +633,11 @@ func printHelp() {
     %stls enable%s       Enable TLS to xmrig-proxy (default)
     %stls disable%s      Disable TLS, use plain stratum
 
-    %sserver set <url>%s       Set dashboard server URL
-    %sserver agent-key <key>%s Set agent key for server auth
-    %sserver status%s          Show dashboard server config
+    %sserver set <url>%s                 Set dashboard server URL
+    %sserver agent-key <key>%s           Set agent key for server auth
+    %sserver access-client-id <id>%s     Set Cloudflare Access client ID
+    %sserver access-client-secret <sec>%s Set Cloudflare Access client secret
+    %sserver status%s                    Show dashboard server config
 
     %sinfo%s             Show system and configuration info
     %shelp, h%s          Show this help message
@@ -620,6 +665,8 @@ func printHelp() {
 		green, reset,
 		green, reset,
 		gray, reset,
+		green, reset,
+		green, reset,
 		green, reset,
 		green, reset,
 		green, reset,

@@ -15,13 +15,15 @@ const (
 
 // Config holds persistent tarish settings
 type Config struct {
-	AutoUpdate         bool   `json:"auto_update"`
-	CheckIntervalHours int    `json:"check_interval_hours,omitempty"` // default 6
-	LastChecked        string `json:"last_checked,omitempty"`         // RFC3339
-	TLSXmrigProxy      *bool  `json:"tls-xmrig-proxy,omitempty"`     // default true
-	ServerURL          string `json:"server_url,omitempty"`
-	ServerAgentKey     string `json:"server_agent_key,omitempty"`
-	ServerAPIKey       string `json:"server_api_key,omitempty"` // deprecated, migrated to server_agent_key
+	AutoUpdate               bool   `json:"auto_update"`
+	CheckIntervalHours       int    `json:"check_interval_hours,omitempty"` // default 6
+	LastChecked              string `json:"last_checked,omitempty"`         // RFC3339
+	TLSXmrigProxy            *bool  `json:"tls-xmrig-proxy,omitempty"`      // default true
+	ServerURL                string `json:"server_url,omitempty"`
+	ServerAgentKey           string `json:"server_agent_key,omitempty"`
+	ServerAccessClientID     string `json:"server_access_client_id,omitempty"`
+	ServerAccessClientSecret string `json:"server_access_client_secret,omitempty"`
+	ServerAPIKey             string `json:"server_api_key,omitempty"` // deprecated, migrated to server_agent_key
 }
 
 // ConfigDir returns ~/.local/share/tarish (user-wide, same as install share on Linux/macOS)
@@ -217,6 +219,30 @@ func GetServerAgentKey() string {
 func SetServerAgentKey(key string) error {
 	cfg := Load()
 	cfg.ServerAgentKey = key
+	return Save(cfg)
+}
+
+// GetServerAccessClientID returns the configured Cloudflare Access client ID.
+func GetServerAccessClientID() string {
+	return Load().ServerAccessClientID
+}
+
+// SetServerAccessClientID persists the Cloudflare Access client ID.
+func SetServerAccessClientID(id string) error {
+	cfg := Load()
+	cfg.ServerAccessClientID = id
+	return Save(cfg)
+}
+
+// GetServerAccessClientSecret returns the configured Cloudflare Access client secret.
+func GetServerAccessClientSecret() string {
+	return Load().ServerAccessClientSecret
+}
+
+// SetServerAccessClientSecret persists the Cloudflare Access client secret.
+func SetServerAccessClientSecret(secret string) error {
+	cfg := Load()
+	cfg.ServerAccessClientSecret = secret
 	return Save(cfg)
 }
 

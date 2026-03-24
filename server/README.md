@@ -127,7 +127,7 @@ Quick install on the target host after extracting an archive:
 sudo ./install.sh
 ```
 
-The installer copies the binary to `/opt/tarish/server`, installs the systemd unit to `/etc/systemd/system/tarish-server.service`, creates `/etc/tarish-server.env` if it does not exist yet, and leaves the env file untouched on later upgrades.
+The installer creates the `tarish` system user/group when needed, copies the binary to `/opt/tarish/server`, installs the systemd unit to `/etc/systemd/system/tarish-server.service`, creates `/etc/tarish-server.env` if it does not exist yet, and leaves the env file untouched on later upgrades.
 
 GitHub repository settings required:
 
@@ -146,6 +146,22 @@ If you plan to expose the dashboard through Cloudflare Tunnel:
 - Keep port `8080` closed to the public Internet
 
 A sample tunnel config is included at `server/cloudflared.example.yml`.
+
+If you protect the dashboard with Cloudflare Access, do not rely on OTP for miner traffic. The miner agent is a non-browser client. Use Cloudflare Access service tokens for the agent-facing API paths and keep browser OTP or IdP login for the dashboard itself.
+
+Recommended split:
+
+- Dashboard and dashboard API for humans: protect with Cloudflare Access OTP or your IdP
+- Agent endpoints (`/api/report`, `/api/miners/*/config/pending`, `/api/miners/*/config/ack`): protect with Cloudflare Access `Service Auth`
+
+On each miner, configure:
+
+```bash
+tarish server set https://tarish-server.dashboard.com
+tarish server agent-key YOUR_AGENT_KEY
+tarish server access-client-id YOUR_CF_ACCESS_CLIENT_ID
+tarish server access-client-secret YOUR_CF_ACCESS_CLIENT_SECRET
+```
 
 Suggested `cloudflared` flow:
 

@@ -25,9 +25,9 @@ import (
 var Version = "dev"
 
 const (
-	heartbeatInterval   = 30 * time.Second
-	configPollInterval  = 3 * time.Second
-	httpTimeout         = 10 * time.Second
+	heartbeatInterval  = 30 * time.Second
+	configPollInterval = 3 * time.Second
+	httpTimeout        = 10 * time.Second
 )
 
 // Guards applyConfigOverride so the heartbeat and config-poll don't race.
@@ -197,11 +197,7 @@ func sendReport(cpuInfo *cpu.Info, serverURL string) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	agentKey := config.GetServerAgentKey()
-	if agentKey != "" {
-		req.Header.Set("Authorization", "Bearer "+agentKey)
-	}
+	applyServerAuthHeaders(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -296,9 +292,7 @@ func checkPendingConfig(client *http.Client, pendingURL, serverURL, minerID stri
 	if err != nil {
 		return
 	}
-	if agentKey := config.GetServerAgentKey(); agentKey != "" {
-		req.Header.Set("Authorization", "Bearer "+agentKey)
-	}
+	applyServerAuthHeaders(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -376,10 +370,7 @@ func ackConfigOverride(serverURL, minerID string) {
 		return
 	}
 
-	agentKey := config.GetServerAgentKey()
-	if agentKey != "" {
-		req.Header.Set("Authorization", "Bearer "+agentKey)
-	}
+	applyServerAuthHeaders(req)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -393,6 +384,18 @@ func ackConfigOverride(serverURL, minerID string) {
 	} else {
 		respBody, _ := io.ReadAll(resp.Body)
 		fmt.Printf("[agent] ack failed (HTTP %d): %s\n", resp.StatusCode, string(respBody))
+	}
+}
+
+func applyServerAuthHeaders(req *http.Request) {
+	if agentKey := config.GetServerAgentKey(); agentKey != "" {
+		req.Header.Set("Authorization", "Bearer "+agentKey)
+	}
+	if clientID := config.GetServerAccessClientID(); clientID != "" {
+		req.Header.Set("CF-Access-Client-Id", clientID)
+	}
+	if clientSecret := config.GetServerAccessClientSecret(); clientSecret != "" {
+		req.Header.Set("CF-Access-Client-Secret", clientSecret)
 	}
 }
 

@@ -6,6 +6,8 @@ INSTALL_ROOT="${TARISH_SERVER_INSTALL_ROOT:-/opt/tarish/server}"
 SERVICE_PATH="${TARISH_SERVER_SERVICE_PATH:-/etc/systemd/system/tarish-server.service}"
 ENV_PATH="${TARISH_SERVER_ENV_PATH:-/etc/tarish-server.env}"
 DB_DIR="${TARISH_SERVER_DB_DIR:-/var/lib/tarish}"
+SERVICE_USER="${TARISH_SERVER_USER:-tarish}"
+SERVICE_GROUP="${TARISH_SERVER_GROUP:-tarish}"
 
 usage() {
     cat <<EOF
@@ -22,7 +24,27 @@ Optional environment overrides:
   TARISH_SERVER_SERVICE_PATH
   TARISH_SERVER_ENV_PATH
   TARISH_SERVER_DB_DIR
+  TARISH_SERVER_USER
+  TARISH_SERVER_GROUP
 EOF
+}
+
+ensure_service_account() {
+    if ! getent group "${SERVICE_GROUP}" >/dev/null 2>&1; then
+        echo "Creating system group ${SERVICE_GROUP}"
+        groupadd --system "${SERVICE_GROUP}"
+    fi
+
+    if ! id -u "${SERVICE_USER}" >/dev/null 2>&1; then
+        echo "Creating system user ${SERVICE_USER}"
+        useradd \
+            --system \
+            --home-dir "${DB_DIR}" \
+            --no-create-home \
+            --shell /usr/sbin/nologin \
+            --gid "${SERVICE_GROUP}" \
+            "${SERVICE_USER}"
+    fi
 }
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
@@ -43,9 +65,12 @@ for required_file in tarish-server tarish-server.service tarish-server.env.examp
     fi
 done
 
+ensure_service_account
+
 echo "Installing tarish-server into ${INSTALL_ROOT}"
 install -d -m 0755 "${INSTALL_ROOT}"
 install -d -m 0755 "${DB_DIR}"
+chown "${SERVICE_USER}:${SERVICE_GROUP}" "${DB_DIR}"
 
 install -m 0755 "${SCRIPT_DIR}/tarish-server" "${INSTALL_ROOT}/tarish-server"
 install -m 0644 "${SCRIPT_DIR}/tarish-server.service" "${SERVICE_PATH}"
