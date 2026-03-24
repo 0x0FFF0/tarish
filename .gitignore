@@ -13,6 +13,7 @@ server/tarish.db-wal
 
 # Server build artifacts
 server/web/dist/
+server/dist/
 
 # OS
 .DS_Store

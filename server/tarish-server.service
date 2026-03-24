@@ -1,0 +1,28 @@
+[Unit]
+Description=Tarish Dashboard Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tarish
+Group=tarish
+WorkingDirectory=/opt/tarish/server
+Environment="TARISH_SERVER_ADDR=127.0.0.1:8080"
+Environment="TARISH_SERVER_DB=/var/lib/tarish/tarish.db"
+Environment="TARISH_SERVER_AGENT_KEY=CHANGE_ME"
+Environment="TARISH_SERVER_PROXY_URL="
+Environment="TARISH_SERVER_PROXY_API_TOKEN="
+EnvironmentFile=-/etc/tarish-server.env
+ExecStart=/opt/tarish/server/tarish-server --addr=${TARISH_SERVER_ADDR} --db=${TARISH_SERVER_DB} --agent-key=${TARISH_SERVER_AGENT_KEY} --proxy-url=${TARISH_SERVER_PROXY_URL} --proxy-api-token=${TARISH_SERVER_PROXY_API_TOKEN}
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tarish
+StateDirectory=tarish
+
+[Install]
+WantedBy=multi-user.target
