@@ -23,6 +23,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/report", s.authMiddleware(s.handleReport))
 	mux.HandleFunc("GET /api/miners", s.handleGetMiners)
 	mux.HandleFunc("GET /api/miners/{id}", s.handleGetMiner)
+	mux.HandleFunc("DELETE /api/miners/{id}", s.handleDeleteMiner)
 	mux.HandleFunc("PUT /api/miners/{id}/config", s.handleSetConfig)
 	mux.HandleFunc("GET /api/miners/{id}/config/pending", s.authMiddleware(s.handleGetPendingConfig))
 	mux.HandleFunc("POST /api/miners/{id}/config/ack", s.authMiddleware(s.handleAckConfig))

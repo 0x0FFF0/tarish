@@ -85,6 +85,27 @@ func (s *Server) handleGetMiner(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, miner)
 }
 
+func (s *Server) handleDeleteMiner(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+
+	deleted, err := s.store.DeleteMiner(id)
+	if err != nil {
+		http.Error(w, "failed to delete miner", http.StatusInternalServerError)
+		return
+	}
+	if !deleted {
+		http.Error(w, "miner not found", http.StatusNotFound)
+		return
+	}
+
+	log.Printf("[miner] deleted %s", id)
+	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
 func (s *Server) handleSetConfig(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {

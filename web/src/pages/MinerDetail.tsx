@@ -1,18 +1,23 @@
-import { useParams, Link } from "react-router-dom"
+import { useState } from "react"
+import { useParams, Link, useNavigate } from "react-router-dom"
 import { usePoll } from "@/hooks/use-poll"
 import { api, type Miner, type HashrateHistory } from "@/lib/api"
 import { formatHashrate, formatUptime, formatTimeAgo, displayName, friendlyCPU } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { ArrowLeft, Cpu, Globe, HardDrive, Clock, Gauge } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { ArrowLeft, Cpu, Globe, HardDrive, Clock, Gauge, Trash2 } from "lucide-react"
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts"
 import ConfigEditor from "@/components/ConfigEditor"
 
 export default function MinerDetail() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const { data: miner, refresh } = usePoll<Miner>(() => api.getMiner(id!), 10000)
   const { data: history } = usePoll<HashrateHistory[]>(() => api.getHashrateHistory(id, 6), 30000)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   if (!miner) {
     return <div className="flex h-64 items-center justify-center text-muted-foreground">Loading...</div>
@@ -26,6 +31,23 @@ export default function MinerDetail() {
       average: h.average,
     }))
 
+  const handleDeleteMiner = async () => {
+    const confirmed = window.confirm(
+      `Delete ${displayName(miner)} from the dashboard? This also removes its stored hashrate history and pending config overrides.`
+    )
+    if (!confirmed) return
+
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await api.deleteMiner(miner.id)
+      navigate("/miners")
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Failed to delete miner")
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
@@ -36,10 +58,24 @@ export default function MinerDetail() {
           <h1 className="text-3xl font-bold tracking-tight">{displayName(miner)}</h1>
           <p className="text-muted-foreground">{miner.ip} &middot; {miner.miner_id}</p>
         </div>
-        <Badge variant={miner.status === "online" ? "success" : miner.status === "stale" ? "warning" : "destructive"} className="ml-auto">
-          {miner.status}
-        </Badge>
+        <div className="ml-auto flex items-center gap-3">
+          <Button variant="destructive" size="sm" onClick={handleDeleteMiner} disabled={deleting}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            {deleting ? "Deleting..." : "Delete Miner"}
+          </Button>
+          <Badge variant={miner.status === "online" ? "success" : miner.status === "stale" ? "warning" : "destructive"}>
+            {miner.status}
+          </Badge>
+        </div>
       </div>
+
+      {deleteError ? (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="py-4 text-sm text-destructive">
+            Failed to delete miner: {deleteError}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <InfoCard icon={<Gauge className="h-4 w-4 text-primary" />} label="Current Hashrate" value={formatHashrate(miner.hashrate?.current ?? 0)} />

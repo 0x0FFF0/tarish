@@ -216,6 +216,42 @@ func (s *Store) GetMiner(id string) (*models.Miner, error) {
 	return m, nil
 }
 
+func (s *Store) DeleteMiner(id string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`DELETE FROM miners WHERE id = ?`, id)
+	if err != nil {
+		return false, err
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if rows == 0 {
+		return false, nil
+	}
+
+	if _, err := tx.Exec(`DELETE FROM hashrate_history WHERE miner_id = ?`, id); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(`DELETE FROM config_overrides WHERE miner_id = ?`, id); err != nil {
+		return false, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *Store) SetConfigOverride(minerID string, override map[string]interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -52,6 +52,10 @@ export const api = {
   getOverview: () => fetchJSON<Overview>("/api/overview"),
   getMiners: () => fetchJSON<Miner[]>("/api/miners"),
   getMiner: (id: string) => fetchJSON<Miner>(`/api/miners/${encodeURIComponent(id)}`),
+  deleteMiner: (id: string) =>
+    fetchJSON<{ ok: boolean }>(`/api/miners/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
   setConfig: (id: string, config: Record<string, unknown>) =>
     fetchJSON<{ ok: boolean }>(`/api/miners/${encodeURIComponent(id)}/config`, {
       method: "PUT",
