@@ -40,6 +40,20 @@ sudo ./tarish install
 ./tarish install
 ```
 
+### Automatic Dependency Bootstrap
+
+Tarish now checks runtime dependencies before `tarish install`, `tarish start`, and `tarish service enable`.
+
+#### Linux
+- Installs `libhwloc15`, `hwloc`, and `msr-tools` with `apt-get` when they are missing
+- Downloads `/usr/local/bin/randomx_boost.sh` from the upstream XMRig repository when needed
+- Writes `/etc/systemd/system/xmrig-msr.service`, reloads systemd, and enables or starts the unit
+
+#### macOS
+- Verifies the built-in `caffeinate` dependency used for sleep prevention
+- Uses Homebrew to install `hwloc` when Homebrew is available and `hwloc` is missing
+- Skips `msr-tools` and `randomx_boost.sh` because that Linux MSR tuning path does not exist on macOS
+
 ### Basic Usage
 
 ```bash
@@ -283,6 +297,46 @@ GOOS=darwin GOARCH=arm64 go build -o tarish_macos_arm64
 # Build for Linux ARM64
 GOOS=linux GOARCH=arm64 go build -o tarish_linux_arm64
 ```
+
+### Release Sync
+
+`build.sh` writes the client-facing release assets to `dist/` and `version`. Use `deploy.sh` to sync only those release files instead of rsyncing the full repository.
+
+```bash
+# Build and deploy to the default NAS target
+./deploy.sh
+
+# Preview the rsync changes without uploading anything
+./deploy.sh --dry-run
+
+# Reuse existing dist/ and version without rebuilding
+./deploy.sh --no-build
+
+# Override the target for another host/path
+./deploy.sh --target user@host:/path/to/tarish
+```
+
+By default `deploy.sh` syncs:
+- `dist/` with `--delete` so stale binaries are removed remotely
+- `version`
+- `install.sh`
+
+You can also override the default target with `TARISH_DEPLOY_TARGET`.
+
+### Official Release
+
+Use `release.sh` when you want a clean client-facing version instead of a `-dirty` development build.
+
+```bash
+./release.sh --version v1.0.7
+```
+
+`release.sh` enforces:
+- an explicit release version
+- a clean git working tree
+- build first, then deploy to the same release target
+
+If the tree is dirty, the release is blocked until you commit or stash the changes.
 
 ## Troubleshooting
 

@@ -10,6 +10,7 @@ import (
 	"tarish/agent"
 	"tarish/config"
 	"tarish/cpu"
+	"tarish/deps"
 	"tarish/embedded"
 	"tarish/install"
 	"tarish/service"
@@ -47,6 +48,11 @@ func main() {
 		agent.Version = Version
 		agent.RunDaemon()
 		return
+	}
+
+	if err := deps.Ensure(command, os.Args[2:]); err != nil {
+		fmt.Printf("Dependency check failed: %v\n", err)
+		os.Exit(1)
 	}
 
 	// If auto-update is enabled, apply updates opportunistically on any
