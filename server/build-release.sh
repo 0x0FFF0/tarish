@@ -17,6 +17,7 @@ Usage: ./server/build-release.sh [options]
 
 Build a tarish-server release bundle that includes:
   - tarish-server binary
+  - install.sh
   - README.md
   - tarish-server.service
   - tarish-server.env.example
@@ -142,6 +143,7 @@ fi
 )
 
 chmod +x "${PACKAGE_DIR}/tarish-server"
+install -m 0755 "${SCRIPT_DIR}/install.sh" "${PACKAGE_DIR}/install.sh"
 cp "${SCRIPT_DIR}/README.md" "${PACKAGE_DIR}/README.md"
 cp "${SCRIPT_DIR}/tarish-server.service" "${PACKAGE_DIR}/tarish-server.service"
 cp "${SCRIPT_DIR}/tarish-server.env.example" "${PACKAGE_DIR}/tarish-server.env.example"

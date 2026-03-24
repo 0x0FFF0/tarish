@@ -113,12 +113,21 @@ Tagged releases:
 
 Each release archive contains:
 
+- `install.sh`
 - `tarish-server`
 - `tarish-server.service`
 - `tarish-server.env.example`
 - `cloudflared.example.yml`
 - `README.md`
 - `VERSION`
+
+Quick install on the target host after extracting an archive:
+
+```bash
+sudo ./install.sh
+```
+
+The installer copies the binary to `/opt/tarish/server`, installs the systemd unit to `/etc/systemd/system/tarish-server.service`, creates `/etc/tarish-server.env` if it does not exist yet, and leaves the env file untouched on later upgrades.
 
 GitHub repository settings required:
 
