@@ -31,7 +31,7 @@ echo -e "${GREEN}Building tarish version ${VERSION}${NC}"
 echo ""
 
 # Write version file (rsync this to file.aooo.nl/tarish/version)
-printf '%s' "${VERSION}" > version
+printf '%s\n' "${VERSION}" > version
 echo -e "${YELLOW}version${NC} <- ${VERSION}"
 echo ""
 
@@ -142,4 +142,3 @@ if [ "$1" = "--release" ]; then
     echo ""
     echo -e "${GREEN}Release archives created!${NC}"
 fi
-
