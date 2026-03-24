@@ -74,6 +74,14 @@ func ensureLinux() error {
 	if err := ensureLinuxHwloc(); err != nil {
 		return err
 	}
+	if err := ensureLinuxMSRTuning(); err != nil {
+		fmt.Printf("  Warning: optional Linux MSR tuning is unavailable: %v\n", err)
+		fmt.Println("  Continuing without xmrig-msr; this is expected in containers that block MSR writes")
+	}
+	return nil
+}
+
+func ensureLinuxMSRTuning() error {
 	if err := ensureLinuxMSRTools(); err != nil {
 		return err
 	}

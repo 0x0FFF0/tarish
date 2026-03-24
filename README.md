@@ -45,9 +45,9 @@ sudo ./tarish install
 Tarish now checks runtime dependencies before `tarish install`, `tarish start`, and `tarish service enable`.
 
 #### Linux
-- Installs `libhwloc15`, `hwloc`, and `msr-tools` with `apt-get` when they are missing
-- Downloads `/usr/local/bin/randomx_boost.sh` from the upstream XMRig repository when needed
-- Writes `/etc/systemd/system/xmrig-msr.service`, reloads systemd, and enables or starts the unit
+- Installs `libhwloc15` and `hwloc` with `apt-get` when they are missing
+- Tries to install `msr-tools`, download `/usr/local/bin/randomx_boost.sh`, and manage `xmrig-msr.service`
+- Continues without `xmrig-msr` when MSR tuning cannot be applied, which is common in containers that block MSR writes
 
 #### macOS
 - Verifies the built-in `caffeinate` dependency used for sleep prevention
