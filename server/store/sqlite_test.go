@@ -141,7 +141,7 @@ func testAgentReport(minerID, workerID, hostname, ip string, current float64) *m
 		OS:            "linux",
 		Arch:          "amd64",
 		XmrigVersion:  "6.25.0",
-		TarishVersion: "v1.0.15",
+		TarishVersion: "v1.0.16",
 		UptimeSeconds: 3600,
 		Hashrate: &models.HashrateData{
 			Current: current,

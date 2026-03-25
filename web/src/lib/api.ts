@@ -2,7 +2,10 @@ const BASE = ""
 
 async function fetchJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init)
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  if (!res.ok) {
+    const message = (await res.text()).trim()
+    throw new Error(message || `${res.status} ${res.statusText}`)
+  }
   return res.json()
 }
 
@@ -48,6 +51,46 @@ export interface HashrateHistory {
   max: number
 }
 
+export interface GuideLink {
+  label: string
+  url: string
+}
+
+export interface GuideDocument {
+  id: string
+  slug: string
+  title: string
+  summary: string
+  category: "general" | "script" | "terminal" | string
+  content_type: "text" | "code" | string
+  content: string
+  links: GuideLink[]
+  created_at: string
+  updated_at: string
+  revision_count: number
+  can_rollback: boolean
+}
+
+export interface GuideDocumentInput {
+  title: string
+  summary: string
+  category: string
+  content_type: string
+  content: string
+  links: GuideLink[]
+}
+
+export interface GuideEditChallenge {
+  challenge_id: string
+  prompt: string
+  expires_at: string
+}
+
+export interface GuideEditSession {
+  token: string
+  expires_at: string
+}
+
 export const api = {
   getOverview: () => fetchJSON<Overview>("/api/overview"),
   getMiners: () => fetchJSON<Miner[]>("/api/miners"),
@@ -71,4 +114,42 @@ export const api = {
     if (minerID) params.set("miner_id", minerID)
     return fetchJSON<HashrateHistory[]>(`/api/hashrate/history?${params}`)
   },
+  getGuideDocuments: () => fetchJSON<GuideDocument[]>("/api/guides/documents"),
+  startGuideEditChallenge: () =>
+    fetchJSON<GuideEditChallenge>("/api/guides/edit-challenge", {
+      method: "POST",
+    }),
+  createGuideEditSession: (challenge_id: string, answer: string) =>
+    fetchJSON<GuideEditSession>("/api/guides/edit-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challenge_id, answer }),
+    }),
+  createGuideDocument: (input: GuideDocumentInput, token: string) =>
+    fetchJSON<GuideDocument>("/api/guides/documents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Guide-Edit-Token": token,
+      },
+      body: JSON.stringify({ ...input, confirmed: true }),
+    }),
+  updateGuideDocument: (id: string, input: GuideDocumentInput, token: string) =>
+    fetchJSON<GuideDocument>(`/api/guides/documents/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Guide-Edit-Token": token,
+      },
+      body: JSON.stringify({ ...input, confirmed: true }),
+    }),
+  rollbackGuideDocument: (id: string, token: string) =>
+    fetchJSON<GuideDocument>(`/api/guides/documents/${encodeURIComponent(id)}/rollback`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Guide-Edit-Token": token,
+      },
+      body: JSON.stringify({ confirmed: true }),
+    }),
 }

@@ -1,10 +1,11 @@
 import { NavLink, Outlet } from "react-router-dom"
 import { cn } from "@/lib/utils"
-import { LayoutDashboard, Server } from "lucide-react"
+import { BookOpenText, LayoutDashboard, Server } from "lucide-react"
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/miners", label: "Miners", icon: Server },
+  { to: "/guides", label: "Guides", icon: BookOpenText },
 ]
 
 export default function Layout() {

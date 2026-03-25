@@ -84,7 +84,11 @@ func (s *Store) migrate() error {
 		CREATE INDEX IF NOT EXISTS idx_hashrate_history_miner_ts
 			ON hashrate_history(miner_id, timestamp);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	return s.migrateGuides()
 }
 
 func (s *Store) UpsertMiner(report *models.AgentReport) error {
