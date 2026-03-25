@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"tarish-server/models"
+	storepkg "tarish-server/store"
 )
 
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
@@ -26,10 +27,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := report.MinerID
-	if id == "" {
-		id = report.WorkerID
-	}
+	id := storepkg.ResolveMinerID(&report)
 
 	response := models.ReportResponse{OK: true}
 

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"tarish/cpu"
@@ -49,21 +50,7 @@ func buildReport(cpuInfo *cpu.Info, version string) *StatusReport {
 		TarishVersion: version,
 	}
 
-	// Get miner_id and worker_id from the runtime config file (these don't change)
-	runtimePath := xmrig.GetRuntimeConfigPath()
-	if data, err := os.ReadFile(runtimePath); err == nil {
-		var raw map[string]interface{}
-		if json.Unmarshal(data, &raw) == nil {
-			if api, ok := raw["api"].(map[string]interface{}); ok {
-				if id, ok := api["id"].(string); ok {
-					report.MinerID = id
-				}
-				if wid, ok := api["worker-id"].(string); ok {
-					report.WorkerID = wid
-				}
-			}
-		}
-	}
+	report.MinerID, report.WorkerID = readRuntimeIDs()
 
 	// Read LIVE config from xmrig API (reflects applied overrides)
 	port, accessToken := xmrig.GetHTTPConfigFromRuntime()
@@ -91,6 +78,33 @@ func buildReport(cpuInfo *cpu.Info, version string) *StatusReport {
 	}
 
 	return report
+}
+
+func readRuntimeIDs() (minerID, workerID string) {
+	runtimePath := xmrig.GetRuntimeConfigPath()
+	data, err := os.ReadFile(runtimePath)
+	if err != nil {
+		return "", ""
+	}
+
+	var raw map[string]interface{}
+	if json.Unmarshal(data, &raw) != nil {
+		return "", ""
+	}
+
+	api, _ := raw["api"].(map[string]interface{})
+	if api == nil {
+		return "", ""
+	}
+
+	if id, ok := api["id"].(string); ok {
+		minerID = strings.TrimSpace(id)
+	}
+	if wid, ok := api["worker-id"].(string); ok {
+		workerID = strings.TrimSpace(wid)
+	}
+
+	return minerID, workerID
 }
 
 func fetchLiveConfig(port int, accessToken string) map[string]interface{} {

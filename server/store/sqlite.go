@@ -91,9 +91,9 @@ func (s *Store) UpsertMiner(report *models.AgentReport) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	id := report.MinerID
+	id := ResolveMinerID(report)
 	if id == "" {
-		id = report.WorkerID
+		return fmt.Errorf("miner identity is empty")
 	}
 
 	configJSON := "{}"
@@ -112,7 +112,17 @@ func (s *Store) UpsertMiner(report *models.AgentReport) error {
 
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	_, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := migrateLegacyMinerID(tx, id, report); err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
 		INSERT INTO miners (id, miner_id, worker_id, hostname, ip, cpu_model, cpu_family,
 			cores, os, arch, xmrig_version, tarish_version, uptime_seconds,
 			hashrate_current, hashrate_average, hashrate_max, config_json, last_seen)
@@ -146,13 +156,17 @@ func (s *Store) UpsertMiner(report *models.AgentReport) error {
 
 	// Record hashrate history (sample every report)
 	if report.Hashrate != nil {
-		_, err = s.db.Exec(`
+		_, err = tx.Exec(`
 			INSERT INTO hashrate_history (miner_id, timestamp, current, average, max)
 			VALUES (?, ?, ?, ?, ?)
 		`, id, now, hCurrent, hAverage, hMax)
 	}
 
-	return err
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (s *Store) GetMiners() ([]*models.Miner, error) {
@@ -439,6 +453,55 @@ func scanMiner(rows *sql.Rows) (*models.Miner, error) {
 	}
 
 	return m, nil
+}
+
+type legacyMinerRecord struct {
+	WorkerID string
+	IP       string
+	Hostname string
+}
+
+func migrateLegacyMinerID(tx *sql.Tx, id string, report *models.AgentReport) error {
+	legacyID := report.MinerID
+	if legacyID == "" || legacyID == id {
+		return nil
+	}
+
+	var legacy legacyMinerRecord
+	err := tx.QueryRow(`
+		SELECT worker_id, ip, hostname FROM miners WHERE id = ?
+	`, legacyID).Scan(&legacy.WorkerID, &legacy.IP, &legacy.Hostname)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	if !sameNonEmpty(legacy.WorkerID, report.WorkerID) &&
+		!sameNonEmpty(legacy.IP, report.IP) &&
+		!sameNonEmpty(legacy.Hostname, report.Hostname) {
+		return nil
+	}
+
+	if _, err := tx.Exec(`UPDATE hashrate_history SET miner_id = ? WHERE miner_id = ?`, id, legacyID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`
+		DELETE FROM config_overrides
+		WHERE miner_id = ?
+		  AND EXISTS (SELECT 1 FROM config_overrides WHERE miner_id = ?)
+	`, legacyID, id); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`UPDATE config_overrides SET miner_id = ? WHERE miner_id = ?`, id, legacyID); err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`DELETE FROM miners WHERE id = ?`, legacyID)
+	return err
 }
 
 // parseTime tries multiple formats that SQLite/go-sqlite3 may produce

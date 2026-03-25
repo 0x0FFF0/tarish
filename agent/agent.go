@@ -229,50 +229,32 @@ func sendReport(cpuInfo *cpu.Info, serverURL string) {
 	}
 
 	if response.ConfigOverride != nil {
-		minerID := report.MinerID
-		if minerID == "" {
-			minerID = report.WorkerID
+		agentID := preferredAgentID(report.MinerID, report.WorkerID, report.IP, report.Hostname)
+		if agentID != "" {
+			applyConfigOverride(response.ConfigOverride, serverURL, agentID)
 		}
-		applyConfigOverride(response.ConfigOverride, serverURL, minerID)
 	}
 }
 
-// readMinerID reads the miner ID (api.id or api.worker-id) from the runtime config.
-func readMinerID() string {
-	runtimePath := xmrig.GetRuntimeConfigPath()
-	data, err := os.ReadFile(runtimePath)
-	if err != nil {
-		return ""
-	}
-	var raw map[string]interface{}
-	if json.Unmarshal(data, &raw) != nil {
-		return ""
-	}
-	api, _ := raw["api"].(map[string]interface{})
-	if api == nil {
-		return ""
-	}
-	if id, ok := api["id"].(string); ok && id != "" {
-		return id
-	}
-	if wid, ok := api["worker-id"].(string); ok && wid != "" {
-		return wid
-	}
-	return ""
+// readAgentID reads the stable agent identity used by tarish-server.
+func readAgentID() string {
+	minerID, workerID := readRuntimeIDs()
+	hostname, _ := os.Hostname()
+	return preferredAgentID(minerID, workerID, detectLANIP(), hostname)
 }
 
 // pollConfigLoop polls the server for pending config overrides every few
 // seconds so that dashboard edits are applied almost immediately instead
 // of waiting for the next 30s heartbeat.
 func pollConfigLoop(serverURL string, stop <-chan struct{}) {
-	minerID := readMinerID()
-	if minerID == "" {
+	agentID := readAgentID()
+	if agentID == "" {
 		fmt.Println("[agent] config-poll: cannot determine miner ID, skipping")
 		return
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	pendingURL := fmt.Sprintf("%s/api/miners/%s/config/pending", serverURL, minerID)
+	pendingURL := fmt.Sprintf("%s/api/miners/%s/config/pending", serverURL, agentID)
 
 	ticker := time.NewTicker(configPollInterval)
 	defer ticker.Stop()
@@ -282,12 +264,12 @@ func pollConfigLoop(serverURL string, stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
-			checkPendingConfig(client, pendingURL, serverURL, minerID)
+			checkPendingConfig(client, pendingURL, serverURL, agentID)
 		}
 	}
 }
 
-func checkPendingConfig(client *http.Client, pendingURL, serverURL, minerID string) {
+func checkPendingConfig(client *http.Client, pendingURL, serverURL, agentID string) {
 	req, err := http.NewRequest("GET", pendingURL, nil)
 	if err != nil {
 		return
@@ -315,11 +297,11 @@ func checkPendingConfig(client *http.Client, pendingURL, serverURL, minerID stri
 	}
 
 	if response.ConfigOverride != nil {
-		applyConfigOverride(response.ConfigOverride, serverURL, minerID)
+		applyConfigOverride(response.ConfigOverride, serverURL, agentID)
 	}
 }
 
-func applyConfigOverride(override map[string]interface{}, serverURL, minerID string) {
+func applyConfigOverride(override map[string]interface{}, serverURL, agentID string) {
 	configMu.Lock()
 	defer configMu.Unlock()
 
@@ -353,16 +335,16 @@ func applyConfigOverride(override map[string]interface{}, serverURL, minerID str
 
 	if resp.StatusCode == 200 || resp.StatusCode == 204 {
 		fmt.Println("[agent] applied config override from server")
-		ackConfigOverride(serverURL, minerID)
+		ackConfigOverride(serverURL, agentID)
 	} else {
 		respBody, _ := io.ReadAll(resp.Body)
 		fmt.Printf("[agent] xmrig rejected config (HTTP %d): %s\n", resp.StatusCode, string(respBody))
 	}
 }
 
-func ackConfigOverride(serverURL, minerID string) {
+func ackConfigOverride(serverURL, agentID string) {
 	client := &http.Client{Timeout: 5 * time.Second}
-	ackURL := fmt.Sprintf("%s/api/miners/%s/config/ack", serverURL, minerID)
+	ackURL := fmt.Sprintf("%s/api/miners/%s/config/ack", serverURL, agentID)
 
 	req, err := http.NewRequest("POST", ackURL, nil)
 	if err != nil {
