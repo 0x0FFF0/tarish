@@ -1,4 +1,4 @@
-name: Build Tarish Server Release
+name: Build Tarish Release
 
 on:
   workflow_dispatch:
@@ -14,8 +14,48 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build linux/${{ matrix.goarch }}
+  build-client:
+    name: Build client bundle
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Determine release version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "value=${GITHUB_REF_NAME}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "value=manual-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build client release bundle
+        shell: bash
+        run: |
+          bash ./build-client-release.sh \
+            --version "${{ steps.version.outputs.value }}" \
+            --output-dir dist/release
+
+      - name: Upload client workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarish-client-bundle
+          path: |
+            dist/release/tarish-client_${{ steps.version.outputs.value }}_bundle.tar.gz
+            dist/release/tarish-client_${{ steps.version.outputs.value }}_bundle.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  build-server:
+    name: Build server linux/${{ matrix.goarch }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -77,10 +117,69 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  package-complete:
+    name: Package complete linux/${{ matrix.goarch }}
+    needs:
+      - build-client
+      - build-server
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Determine release version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "value=${GITHUB_REF_NAME}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "value=manual-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Download client artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tarish-client-bundle
+          path: artifacts/client
+
+      - name: Download server artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tarish-server-linux-${{ matrix.goarch }}
+          path: artifacts/server/${{ matrix.goarch }}
+
+      - name: Build complete release bundle
+        shell: bash
+        run: |
+          bash ./build-complete-release.sh \
+            --version "${{ steps.version.outputs.value }}" \
+            --client-archive "artifacts/client/tarish-client_${{ steps.version.outputs.value }}_bundle.tar.gz" \
+            --server-archive "artifacts/server/${{ matrix.goarch }}/tarish-server_${{ steps.version.outputs.value }}_linux_${{ matrix.goarch }}.tar.gz" \
+            --output-dir dist/release
+
+      - name: Upload complete workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tarish-complete-linux-${{ matrix.goarch }}
+          path: |
+            dist/release/tarish-complete_${{ steps.version.outputs.value }}_linux_${{ matrix.goarch }}.tar.gz
+            dist/release/tarish-complete_${{ steps.version.outputs.value }}_linux_${{ matrix.goarch }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
     name: Publish GitHub release assets
     if: startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs:
+      - build-client
+      - build-server
+      - package-complete
     runs-on: ubuntu-24.04
 
     steps:
