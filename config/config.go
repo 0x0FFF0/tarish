@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"tarish/userctx"
 )
 
 const (
@@ -20,15 +23,16 @@ type Config struct {
 	LastChecked              string `json:"last_checked,omitempty"`         // RFC3339
 	TLSXmrigProxy            *bool  `json:"tls-xmrig-proxy,omitempty"`      // default true
 	ServerURL                string `json:"server_url,omitempty"`
+	ServerEnabled            *bool  `json:"server_enabled,omitempty"`
 	ServerAgentKey           string `json:"server_agent_key,omitempty"`
 	ServerAccessClientID     string `json:"server_access_client_id,omitempty"`
 	ServerAccessClientSecret string `json:"server_access_client_secret,omitempty"`
 	ServerAPIKey             string `json:"server_api_key,omitempty"` // deprecated, migrated to server_agent_key
 }
 
-// ConfigDir returns ~/.local/share/tarish (user-wide, same as install share on Linux/macOS)
+// ConfigDir returns the tarish config directory for the owning user account.
 func ConfigDir() (string, error) {
-	home, err := os.UserHomeDir()
+	home, err := userctx.HomeDir()
 	if err != nil {
 		return "", err
 	}
@@ -45,7 +49,7 @@ func configPath() (string, error) {
 
 // legacyConfigPath returns the old location for one-time migration
 func legacyConfigPath() (string, error) {
-	home, err := os.UserHomeDir()
+	home, err := userctx.HomeDir()
 	if err != nil {
 		return "", err
 	}
@@ -198,6 +202,10 @@ func FormatTLSStatus() string {
 	return "disabled"
 }
 
+func serverEnabledDefault(cfg *Config) bool {
+	return strings.TrimSpace(cfg.ServerURL) != ""
+}
+
 // GetServerURL returns the configured tarish server URL (empty if not set)
 func GetServerURL() string {
 	return Load().ServerURL
@@ -208,6 +216,31 @@ func SetServerURL(url string) error {
 	cfg := Load()
 	cfg.ServerURL = url
 	return Save(cfg)
+}
+
+// IsServerEnabled returns whether miner-to-server communication is enabled.
+// Older configs implicitly enable communication when a server URL is present.
+func IsServerEnabled() bool {
+	cfg := Load()
+	if cfg.ServerEnabled == nil {
+		return serverEnabledDefault(cfg)
+	}
+	return *cfg.ServerEnabled
+}
+
+// SetServerEnabled persists the miner-to-server communication preference.
+func SetServerEnabled(enabled bool) error {
+	cfg := Load()
+	cfg.ServerEnabled = &enabled
+	return Save(cfg)
+}
+
+// FormatServerStatus returns a human-readable summary of server communication.
+func FormatServerStatus() string {
+	if IsServerEnabled() {
+		return "enabled"
+	}
+	return "disabled"
 }
 
 // GetServerAgentKey returns the configured agent key for server auth

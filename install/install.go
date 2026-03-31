@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"tarish/embedded"
+	"tarish/userctx"
 )
 
 const (
@@ -121,7 +122,7 @@ func Install() error {
 	fmt.Printf("  Created log directory at %s\n", logDir)
 
 	// Create data directory for PID file etc
-	home, _ := os.UserHomeDir()
+	home, _ := userctx.HomeDir()
 	if home != "" {
 		dataDir := filepath.Join(home, ".tarish")
 		os.MkdirAll(dataDir, 0755)
@@ -137,7 +138,7 @@ func Install() error {
 			if strings.Contains(shell, "zsh") {
 				profile = "~/.zshrc"
 			}
-			
+
 			fmt.Printf("\n\033[33mWarning: %s is not in your PATH.\033[0m\n", binPath)
 			fmt.Printf("To use 'tarish' command, run:\n\n")
 			fmt.Printf("  echo 'export PATH=\"$PATH:%s\"' >> %s\n", binPath, profile)

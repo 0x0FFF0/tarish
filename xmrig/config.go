@@ -12,6 +12,7 @@ import (
 	"tarish/config"
 	"tarish/cpu"
 	"tarish/embedded"
+	"tarish/userctx"
 )
 
 // TLS connection constants for xmrig-proxy
@@ -340,8 +341,7 @@ func getVendor(family string) string {
 // GetInstalledConfigPath returns the path to installed configs directory
 func GetInstalledConfigPath() string {
 	// 1. Check user-local path (~/.local/share/tarish/configs)
-	home, _ := os.UserHomeDir()
-	if home != "" {
+	if home, err := userctx.HomeDir(); err == nil && home != "" {
 		userPath := filepath.Join(home, ".local", "share", "tarish", "configs")
 		if _, err := os.Stat(userPath); err == nil {
 			return userPath
@@ -440,8 +440,8 @@ func ListAvailableConfigs() ([]string, error) {
 
 // GetDataDir returns the tarish data directory path
 func GetDataDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	home, err := userctx.HomeDir()
+	if err != nil || home == "" {
 		home = "/tmp"
 	}
 	return filepath.Join(home, ".tarish")

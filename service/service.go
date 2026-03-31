@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"tarish/userctx"
 )
 
 const (
@@ -20,14 +22,15 @@ const (
 	systemdService = "tarish.service"
 )
 
-// launchPlistTemplate is the macOS LaunchDaemon/Agent plist template
-// %s placeholders: 1=binary path, 2=log path, 3=error log path, 4=working dir
+// launchPlistTemplate is the macOS LaunchDaemon/Agent plist template.
+// %s placeholders: 1=user block, 2=binary path, 3=log path, 4=error log path, 5=working dir
 const launchPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
     <string>com.tarish</string>
+%s
     <key>ProgramArguments</key>
     <array>
         <string>%s</string>
@@ -48,19 +51,24 @@ const launchPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 `
 
-// systemdTemplate is the Linux systemd unit file template
-// %s placeholders: 1=binary path, 2=binary path (stop), 3=PID file
+// systemdTemplate is the Linux systemd unit file template.
+// %s placeholders: 1=user, 2=home, 3=home, 4=user, 5=binary path, 6=binary path (stop), 7=PID file, 8=working dir
 const systemdTemplate = `[Unit]
 Description=Tarish Donate-free XMRig Manager
 After=network.target
 
 [Service]
 Type=forking
+User=%s
+Environment=HOME=%s
+Environment=TARISH_HOME=%s
+Environment=TARISH_USER=%s
 ExecStart=%s start --force
 ExecStop=%s stop
 PIDFile=%s
 Restart=on-failure
 RestartSec=10
+WorkingDirectory=%s
 
 [Install]
 WantedBy=multi-user.target
@@ -71,7 +79,7 @@ func getInstallPaths() (binPath, sharePath string) {
 	if os.Geteuid() == 0 {
 		return "/usr/local/bin/tarish", "/usr/local/share/tarish"
 	}
-	home, _ := os.UserHomeDir()
+	home, _ := userctx.HomeDir()
 	return filepath.Join(home, ".local", "bin", "tarish"),
 		filepath.Join(home, ".local", "share", "tarish")
 }
@@ -79,8 +87,7 @@ func getInstallPaths() (binPath, sharePath string) {
 // findTarishBinary finds the installed tarish binary
 func findTarishBinary() (string, error) {
 	// Check user path first
-	home, _ := os.UserHomeDir()
-	if home != "" {
+	if home, err := userctx.HomeDir(); err == nil && home != "" {
 		userBin := filepath.Join(home, ".local", "bin", "tarish")
 		if _, err := os.Stat(userBin); err == nil {
 			return userBin, nil
@@ -99,8 +106,7 @@ func findTarishBinary() (string, error) {
 // findSharePath finds the share directory based on binary location
 func findSharePath(binPath string) string {
 	// If binary is in ~/.local/bin, share is ~/.local/share/tarish
-	home, _ := os.UserHomeDir()
-	if home != "" && strings.HasPrefix(binPath, filepath.Join(home, ".local")) {
+	if home, err := userctx.HomeDir(); err == nil && home != "" && strings.HasPrefix(binPath, filepath.Join(home, ".local")) {
 		return filepath.Join(home, ".local", "share", "tarish")
 	}
 	// Otherwise use system path
@@ -151,7 +157,7 @@ func getMacOSPlistPath() (string, bool, error) {
 	}
 
 	// User: Launch Agent
-	home, err := os.UserHomeDir()
+	home, err := userctx.HomeDir()
 	if err != nil {
 		return "", false, err
 	}
@@ -184,8 +190,29 @@ func enableMacOS() error {
 		return err
 	}
 
+	identity, err := userctx.Current()
+	if err != nil {
+		return err
+	}
+
+	userBlock := ""
+	if isRoot {
+		userBlock = fmt.Sprintf(`    <key>UserName</key>
+    <string>%s</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>%s</string>
+        <key>TARISH_HOME</key>
+        <string>%s</string>
+        <key>TARISH_USER</key>
+        <string>%s</string>
+    </dict>
+`, identity.Username, identity.HomeDir, identity.HomeDir, identity.Username)
+	}
+
 	// Generate plist content with correct paths
-	plistContent := fmt.Sprintf(launchPlistTemplate, binPath, logPath, errorLogPath, sharePath)
+	plistContent := fmt.Sprintf(launchPlistTemplate, userBlock, binPath, logPath, errorLogPath, sharePath)
 
 	// Write plist file
 	if err := os.WriteFile(plistPath, []byte(plistContent), 0644); err != nil {
@@ -253,14 +280,21 @@ func isEnabledMacOS() (bool, error) {
 		return false, err
 	}
 
-	_, err = os.Stat(plistPath)
-	if os.IsNotExist(err) {
-		return false, nil
+	if _, err = os.Stat(plistPath); err == nil {
+		return true, nil
 	}
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return false, err
 	}
-	return true, nil
+
+	if os.Geteuid() != 0 {
+		if _, err := os.Stat(filepath.Join(systemLaunchDaemonPath, plistName)); err == nil {
+			return true, nil
+		} else if err != nil && !os.IsNotExist(err) {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 // enableLinux installs the systemd service on Linux
@@ -278,10 +312,17 @@ func enableLinux() error {
 	// Get share path and PID file
 	sharePath := findSharePath(binPath)
 	pidFile := filepath.Join(sharePath, "log", "xmrig.pid")
+	identity, err := userctx.Current()
+	if err != nil {
+		return err
+	}
+	if identity.Username == "" {
+		identity.Username = "root"
+	}
 
 	// Write service file
 	servicePath := filepath.Join(systemdPath, systemdService)
-	serviceContent := fmt.Sprintf(systemdTemplate, binPath, binPath, pidFile)
+	serviceContent := fmt.Sprintf(systemdTemplate, identity.Username, identity.HomeDir, identity.HomeDir, identity.Username, binPath, binPath, pidFile, sharePath)
 	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
 		return fmt.Errorf("failed to write systemd service: %w", err)
 	}

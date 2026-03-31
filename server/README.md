@@ -8,6 +8,8 @@ The miner-side flow is:
 2. Run `tarish server agent-key <key>` on each miner if the server requires agent auth.
 3. Run `tarish start`.
 
+If you want to keep the URL and keys stored but pause reporting/config sync, run `tarish server disable`. Run `tarish server enable` to resume communication.
+
 When mining starts, Tarish launches a background agent daemon that reports to the server every 30 seconds and polls for pending config overrides every 3 seconds.
 
 ## What runs on the server

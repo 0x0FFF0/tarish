@@ -258,9 +258,7 @@ func handleStart() {
 	}
 
 	// Start agent reporting daemon
-	if err := agent.StartDaemon(); err != nil {
-		fmt.Printf("Warning: failed to start agent daemon: %v\n", err)
-	}
+	startAgentDaemonIfPossible()
 
 	// Start auto-update daemon if enabled
 	if config.IsAutoUpdateEnabled() {
@@ -327,13 +325,31 @@ func handleStatus() {
 	fmt.Printf("  %sAuto-update:      %s%s%s%s%s\n",
 		yellow, reset, autoUpdateColor, autoUpdateLabel, reset, autoUpdateHint)
 
+	// Show server communication status
+	serverLabel := config.FormatServerStatus()
+	serverColor := red
+	serverHint := fmt.Sprintf(" %s(run 'tarish server enable')%s", gray, reset)
+	if config.IsServerEnabled() {
+		serverColor = green
+		serverHint = ""
+		if config.GetServerURL() == "" {
+			serverColor = yellow
+			serverLabel = "enabled (no URL configured)"
+			serverHint = fmt.Sprintf(" %s(run 'tarish server set <url>')%s", gray, reset)
+		}
+	}
+	fmt.Printf("  %sServer Comm:      %s%s%s%s%s\n",
+		yellow, reset, serverColor, serverLabel, reset, serverHint)
+
 	// Show agent daemon status
 	if pid, running := agent.IsDaemonRunning(); running {
 		fmt.Printf("  %sAgent:            %s%s%srunning (pid %d)%s\n",
 			yellow, reset, bold, green, pid, reset)
 	} else {
 		agentHint := ""
-		if config.GetServerURL() == "" {
+		if !config.IsServerEnabled() {
+			agentHint = fmt.Sprintf(" %s(server communication disabled)%s", gray, reset)
+		} else if config.GetServerURL() == "" {
 			agentHint = fmt.Sprintf(" %s(run 'tarish server set <url>' first)%s", gray, reset)
 		} else {
 			agentHint = fmt.Sprintf(" %s(will start on next 'tarish start')%s", gray, reset)
@@ -369,6 +385,12 @@ func handleStatus() {
 	}
 
 	fmt.Println()
+}
+
+func startAgentDaemonIfPossible() {
+	if err := agent.StartDaemon(); err != nil {
+		fmt.Printf("Warning: failed to start agent daemon: %v\n", err)
+	}
 }
 
 func handleService() {
@@ -443,17 +465,14 @@ func handleTLS() {
 
 func handleServer() {
 	if len(os.Args) < 3 {
-		url := config.GetServerURL()
-		if url == "" {
-			fmt.Println("Server URL: (not configured)")
-		} else {
-			fmt.Printf("Server URL: %s\n", url)
-		}
-		fmt.Println("\nUsage: tarish server <set|agent-key|access-client-id|access-client-secret|status>")
+		printServerConfigStatus()
+		fmt.Println("\nUsage: tarish server <set|agent-key|access-client-id|access-client-secret|enable|disable|status>")
 		fmt.Println("  tarish server set <url>                    Set server URL")
 		fmt.Println("  tarish server agent-key <key>              Set agent key for server auth")
 		fmt.Println("  tarish server access-client-id <id>        Set Cloudflare Access client ID")
 		fmt.Println("  tarish server access-client-secret <secret> Set Cloudflare Access client secret")
+		fmt.Println("  tarish server enable                       Enable miner communication to tarish-server")
+		fmt.Println("  tarish server disable                      Disable miner communication but keep keys")
 		fmt.Println("  tarish server status                       Show server config")
 		return
 	}
@@ -471,6 +490,9 @@ func handleServer() {
 			os.Exit(1)
 		}
 		fmt.Printf("Server URL set to: %s\n", url)
+		if config.IsServerEnabled() {
+			startAgentDaemonIfPossible()
+		}
 	case "agent-key", "key":
 		if len(os.Args) < 4 {
 			fmt.Println("Usage: tarish server agent-key <key>")
@@ -504,31 +526,26 @@ func handleServer() {
 			os.Exit(1)
 		}
 		fmt.Println("Cloudflare Access client secret set")
+	case "enable":
+		if err := config.SetServerEnabled(true); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Server communication enabled")
+		if config.GetServerURL() == "" {
+			fmt.Println("Set a server URL with: tarish server set <url>")
+			return
+		}
+		startAgentDaemonIfPossible()
+	case "disable":
+		if err := config.SetServerEnabled(false); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		agent.StopDaemon()
+		fmt.Println("Server communication disabled (stored URL and keys kept)")
 	case "status":
-		url := config.GetServerURL()
-		key := config.GetServerAgentKey()
-		accessClientID := config.GetServerAccessClientID()
-		accessClientSecret := config.GetServerAccessClientSecret()
-		if url == "" {
-			fmt.Println("Server URL: (not configured)")
-		} else {
-			fmt.Printf("Server URL: %s\n", url)
-		}
-		if key == "" {
-			fmt.Println("Agent Key:  (not set)")
-		} else {
-			fmt.Printf("Agent Key:  %s\n", maskSecret(key))
-		}
-		if accessClientID == "" {
-			fmt.Println("Access ID:  (not set)")
-		} else {
-			fmt.Printf("Access ID:  %s\n", maskSecret(accessClientID))
-		}
-		if accessClientSecret == "" {
-			fmt.Println("Access Secret: (not set)")
-		} else {
-			fmt.Printf("Access Secret: %s\n", maskSecret(accessClientSecret))
-		}
+		printServerConfigStatus()
 	default:
 		fmt.Printf("Unknown server command: %s\n", sub)
 		os.Exit(1)
@@ -540,6 +557,40 @@ func maskSecret(value string) string {
 		return "***"
 	}
 	return value[:3] + "..." + value[len(value)-3:]
+}
+
+func printServerConfigStatus() {
+	serverStatus := config.FormatServerStatus()
+	if config.IsServerEnabled() && config.GetServerURL() == "" {
+		serverStatus = "enabled (no URL configured)"
+	}
+	fmt.Printf("Communication: %s\n", serverStatus)
+
+	url := config.GetServerURL()
+	key := config.GetServerAgentKey()
+	accessClientID := config.GetServerAccessClientID()
+	accessClientSecret := config.GetServerAccessClientSecret()
+
+	if url == "" {
+		fmt.Println("Server URL: (not configured)")
+	} else {
+		fmt.Printf("Server URL: %s\n", url)
+	}
+	if key == "" {
+		fmt.Println("Agent Key:  (not set)")
+	} else {
+		fmt.Printf("Agent Key:  %s\n", maskSecret(key))
+	}
+	if accessClientID == "" {
+		fmt.Println("Access ID:  (not set)")
+	} else {
+		fmt.Printf("Access ID:  %s\n", maskSecret(accessClientID))
+	}
+	if accessClientSecret == "" {
+		fmt.Println("Access Secret: (not set)")
+	} else {
+		fmt.Printf("Access Secret: %s\n", maskSecret(accessClientSecret))
+	}
 }
 
 func handleInfo() {
@@ -634,6 +685,8 @@ func printHelp() {
     %stls disable%s      Disable TLS, use plain stratum
 
     %sserver set <url>%s                 Set dashboard server URL
+    server enable                   Enable miner/server communication
+    server disable                  Disable miner/server communication
     %sserver agent-key <key>%s           Set agent key for server auth
     %sserver access-client-id <id>%s     Set Cloudflare Access client ID
     %sserver access-client-secret <sec>%s Set Cloudflare Access client secret

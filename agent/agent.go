@@ -44,6 +44,11 @@ func RunDaemon() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 
+	if !config.IsServerEnabled() {
+		fmt.Println("[agent] server communication disabled, exiting")
+		return
+	}
+
 	serverURL := config.GetServerURL()
 	if serverURL == "" {
 		fmt.Println("[agent] no server URL configured, exiting")
@@ -73,7 +78,7 @@ func RunDaemon() {
 	// Fast config-poll loop: checks for pending overrides every 3s so
 	// dashboard config edits are applied almost immediately.
 	stopPoll := make(chan struct{})
-	go pollConfigLoop(serverURL, stopPoll)
+	go pollConfigLoop(stopPoll)
 
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
@@ -81,12 +86,18 @@ func RunDaemon() {
 	for {
 		select {
 		case <-ticker.C:
-			if config.GetServerURL() == "" {
+			if !config.IsServerEnabled() {
+				fmt.Println("[agent] server communication disabled, exiting")
+				close(stopPoll)
+				return
+			}
+			currentServerURL := config.GetServerURL()
+			if currentServerURL == "" {
 				fmt.Println("[agent] server URL removed, exiting")
 				close(stopPoll)
 				return
 			}
-			sendReport(cpuInfo, config.GetServerURL())
+			sendReport(cpuInfo, currentServerURL)
 		case <-sig:
 			fmt.Println("[agent] received signal, shutting down")
 			close(stopPoll)
@@ -97,6 +108,11 @@ func RunDaemon() {
 
 // StartDaemon spawns the agent daemon as a background process.
 func StartDaemon() error {
+	if !config.IsServerEnabled() {
+		fmt.Println("Agent: server communication disabled, skipping (use 'tarish server enable')")
+		return nil
+	}
+
 	serverURL := config.GetServerURL()
 	if serverURL == "" {
 		fmt.Println("Agent: no server URL configured, skipping (use 'tarish server set <url>')")
@@ -246,7 +262,7 @@ func readAgentID() string {
 // pollConfigLoop polls the server for pending config overrides every few
 // seconds so that dashboard edits are applied almost immediately instead
 // of waiting for the next 30s heartbeat.
-func pollConfigLoop(serverURL string, stop <-chan struct{}) {
+func pollConfigLoop(stop <-chan struct{}) {
 	agentID := readAgentID()
 	if agentID == "" {
 		fmt.Println("[agent] config-poll: cannot determine miner ID, skipping")
@@ -254,7 +270,6 @@ func pollConfigLoop(serverURL string, stop <-chan struct{}) {
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	pendingURL := fmt.Sprintf("%s/api/miners/%s/config/pending", serverURL, agentID)
 
 	ticker := time.NewTicker(configPollInterval)
 	defer ticker.Stop()
@@ -264,6 +279,14 @@ func pollConfigLoop(serverURL string, stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
+			if !config.IsServerEnabled() {
+				return
+			}
+			serverURL := config.GetServerURL()
+			if serverURL == "" {
+				return
+			}
+			pendingURL := fmt.Sprintf("%s/api/miners/%s/config/pending", serverURL, agentID)
 			checkPendingConfig(client, pendingURL, serverURL, agentID)
 		}
 	}
