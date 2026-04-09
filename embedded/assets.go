@@ -60,7 +60,7 @@ func ExtractXmrigBinary(destPath string) (string, error) {
 		}
 		if !d.IsDir() && d.Name() == binaryName {
 			foundPath = path
-			// Extract version from path (bin/6.25.0/xmrig_...)
+			// Extract version from path (bin/6.26.0/xmrig_...)
 			dir := filepath.Dir(path)
 			foundVersion = filepath.Base(dir)
 		}

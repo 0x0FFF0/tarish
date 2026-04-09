@@ -201,7 +201,7 @@ Output example:
 === Tarish Status ===
 
 Status: RUNNING (PID: 12345)
-Version: 6.25.0
+Version: 6.26.0
 Uptime: 2h 15m
 Hashrate: 8234.56 H/s (10s) | 8156.78 H/s (60s) | 8456.90 H/s (max)
 Pool: pool.supportxmr.com:443
@@ -228,7 +228,7 @@ Cores:      16
 OS/Arch:    darwin/arm64
 
 Config:     /usr/local/share/tarish/configs/m3max.json
-XMRig:      /usr/local/share/tarish/bin/6.25.0/xmrig_macos_arm64 (v6.25.0)
+XMRig:      /usr/local/share/tarish/bin/6.26.0/xmrig_macos_arm64 (v6.26.0)
 
 Installed:  /usr/local/bin/tarish
 
