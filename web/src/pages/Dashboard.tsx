@@ -135,15 +135,26 @@ function StatCard({ title, value, subtitle, icon }: { title: string; value: stri
 }
 
 function aggregateHistory(history: HashrateHistory[]): { time: string; hashrate: number }[] {
-  const buckets = new Map<string, number>()
+  const buckets = new Map<string, { sum: number; ticks: Set<number> }>()
+  const interval = 5 * 60 * 1000
 
   for (const h of history) {
-    const d = new Date(h.timestamp)
-    const key = `${d.getHours().toString().padStart(2, "0")}:${(Math.floor(d.getMinutes() / 5) * 5).toString().padStart(2, "0")}`
-    buckets.set(key, (buckets.get(key) ?? 0) + h.current)
+    const ms = new Date(h.timestamp).getTime()
+    const bucketMs = ms - (ms % interval)
+    const tickMin = ms - (ms % 60000)
+    const key = String(bucketMs)
+
+    let bucket = buckets.get(key)
+    if (!bucket) { bucket = { sum: 0, ticks: new Set() }; buckets.set(key, bucket) }
+    bucket.sum += h.current
+    bucket.ticks.add(tickMin)
   }
 
   return Array.from(buckets.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([time, hashrate]) => ({ time, hashrate }))
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .map(([key, { sum, ticks }]) => {
+      const d = new Date(Number(key))
+      const time = `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`
+      return { time, hashrate: sum / ticks.size }
+    })
 }
