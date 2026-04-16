@@ -135,26 +135,30 @@ function StatCard({ title, value, subtitle, icon }: { title: string; value: stri
 }
 
 function aggregateHistory(history: HashrateHistory[]): { time: string; hashrate: number }[] {
-  const buckets = new Map<string, { sum: number; ticks: Set<number> }>()
   const interval = 5 * 60 * 1000
 
+  // Group by tick-minute first, summing all miner hashrates per tick to get fleet total
+  const tickTotals = new Map<number, number>()
   for (const h of history) {
     const ms = new Date(h.timestamp).getTime()
-    const bucketMs = ms - (ms % interval)
     const tickMin = ms - (ms % 60000)
-    const key = String(bucketMs)
+    tickTotals.set(tickMin, (tickTotals.get(tickMin) ?? 0) + h.current)
+  }
 
-    let bucket = buckets.get(key)
-    if (!bucket) { bucket = { sum: 0, ticks: new Set() }; buckets.set(key, bucket) }
-    bucket.sum += h.current
-    bucket.ticks.add(tickMin)
+  // Then bucket tick-level fleet totals into 5-minute intervals
+  const buckets = new Map<number, number[]>()
+  for (const [tickMin, total] of tickTotals) {
+    const bucketMs = tickMin - (tickMin % interval)
+    let arr = buckets.get(bucketMs)
+    if (!arr) { arr = []; buckets.set(bucketMs, arr) }
+    arr.push(total)
   }
 
   return Array.from(buckets.entries())
-    .sort(([a], [b]) => Number(a) - Number(b))
-    .map(([key, { sum, ticks }]) => {
-      const d = new Date(Number(key))
+    .sort(([a], [b]) => a - b)
+    .map(([bucketMs, totals]) => {
+      const d = new Date(bucketMs)
       const time = `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`
-      return { time, hashrate: sum / ticks.size }
+      return { time, hashrate: totals.reduce((s, v) => s + v, 0) / totals.length }
     })
 }
