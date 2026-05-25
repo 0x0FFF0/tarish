@@ -91,6 +91,37 @@ export interface GuideEditSession {
   expires_at: string
 }
 
+export interface BarkSettingsView {
+  enabled: boolean
+  token_set: boolean
+  token_last4?: string
+  check_interval_s: number
+  throttle_minutes: number
+  notify_recovery: boolean
+  mute_until?: string | null
+  mute_forever?: boolean
+  updated_at: string
+}
+
+export interface BarkSettingsInput {
+  enabled?: boolean
+  token?: string
+  check_interval_s?: number
+  throttle_minutes?: number
+  notify_recovery?: boolean
+}
+
+export interface AlertLogEntry {
+  id: number
+  miner_id?: string
+  kind: "offline" | "recovery" | "test" | "offline_suppressed" | string
+  title: string
+  body: string
+  ok: boolean
+  error?: string
+  created_at: string
+}
+
 export const api = {
   getOverview: () => fetchJSON<Overview>("/api/overview"),
   getMiners: () => fetchJSON<Miner[]>("/api/miners"),
@@ -152,4 +183,29 @@ export const api = {
       },
       body: JSON.stringify({ confirmed: true }),
     }),
+  getBarkSettings: () => fetchJSON<BarkSettingsView>("/api/settings/bark"),
+  updateBarkSettings: (input: BarkSettingsInput) =>
+    fetchJSON<BarkSettingsView>("/api/settings/bark", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  testBark: (token?: string) =>
+    fetchJSON<{ ok: boolean; error?: string }>("/api/settings/bark/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(token ? { token } : {}),
+    }),
+  setBarkMute: (req: { minutes?: number; permanent?: boolean }) =>
+    fetchJSON<BarkSettingsView>("/api/settings/bark/mute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }),
+  clearBarkMute: () =>
+    fetchJSON<BarkSettingsView>("/api/settings/bark/mute", {
+      method: "DELETE",
+    }),
+  getRecentAlerts: (limit = 25) =>
+    fetchJSON<AlertLogEntry[]>(`/api/settings/alerts/recent?limit=${limit}`),
 }

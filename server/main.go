@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"flag"
 	"fmt"
@@ -8,8 +9,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
+	"tarish-server/alerter"
 	"tarish-server/api"
 	"tarish-server/proxy"
 	"tarish-server/store"
@@ -41,8 +45,15 @@ func main() {
 		log.Printf("xmrig-proxy API: %s", *proxyURL)
 	}
 
+	// Bark alerter — runs even with no token, becomes a no-op until configured.
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	ax := alerter.New(s, alerter.NewBarkClient())
+	go ax.Run(ctx)
+
 	// Create API server
-	apiServer := api.NewServer(s, pc, *agentKey)
+	apiServer := api.NewServer(s, pc, *agentKey, ax)
 
 	// Setup HTTP mux
 	mux := http.NewServeMux()

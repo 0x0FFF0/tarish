@@ -88,7 +88,11 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	return s.migrateGuides()
+	if err := s.migrateGuides(); err != nil {
+		return err
+	}
+
+	return s.migrateBark()
 }
 
 func (s *Store) UpsertMiner(report *models.AgentReport) error {
@@ -261,6 +265,9 @@ func (s *Store) DeleteMiner(id string) (bool, error) {
 		return false, err
 	}
 	if _, err := tx.Exec(`DELETE FROM config_overrides WHERE miner_id = ?`, id); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(`DELETE FROM alert_state WHERE miner_id = ?`, id); err != nil {
 		return false, err
 	}
 

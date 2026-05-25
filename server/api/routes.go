@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"tarish-server/alerter"
 	"tarish-server/proxy"
 	"tarish-server/store"
 )
@@ -12,14 +13,16 @@ type Server struct {
 	proxyClient *proxy.Client
 	agentKey    string
 	guideEditor *guideEditVerifier
+	alerter     *alerter.Alerter
 }
 
-func NewServer(s *store.Store, pc *proxy.Client, agentKey string) *Server {
+func NewServer(s *store.Store, pc *proxy.Client, agentKey string, ax *alerter.Alerter) *Server {
 	return &Server{
 		store:       s,
 		proxyClient: pc,
 		agentKey:    agentKey,
 		guideEditor: newGuideEditVerifier(),
+		alerter:     ax,
 	}
 }
 
@@ -44,6 +47,13 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/hashrate/history", s.handleHashrateHistory)
 	mux.HandleFunc("GET /api/proxy/summary", s.handleProxySummary)
 	mux.HandleFunc("GET /api/proxy/workers", s.handleProxyWorkers)
+
+	mux.HandleFunc("GET /api/settings/bark", s.handleGetBarkSettings)
+	mux.HandleFunc("PUT /api/settings/bark", s.handleUpdateBarkSettings)
+	mux.HandleFunc("POST /api/settings/bark/test", s.handleTestBark)
+	mux.HandleFunc("POST /api/settings/bark/mute", s.handleSetMute)
+	mux.HandleFunc("DELETE /api/settings/bark/mute", s.handleClearMute)
+	mux.HandleFunc("GET /api/settings/alerts/recent", s.handleGetRecentAlerts)
 
 	return corsMiddleware(mux)
 }
