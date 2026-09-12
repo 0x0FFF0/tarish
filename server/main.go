@@ -54,6 +54,7 @@ func main() {
 
 	// Create API server
 	apiServer := api.NewServer(s, pc, *agentKey, ax)
+	go apiServer.RunSnellSyncLoop(ctx)
 
 	// Setup HTTP mux
 	mux := http.NewServeMux()

@@ -8,8 +8,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/tarish</string>
-        <string>start</string>
-        <string>--force</string>
+        <string>_miner-daemon</string>
     </array>
     
     <!-- Start on system boot -->
@@ -18,7 +17,7 @@
     
     <!-- Don't keep alive - tarish manages its own daemon -->
     <key>KeepAlive</key>
-    <false/>
+    <true/>
     
     <!-- Wait for network before starting -->
     <key>NetworkState</key>

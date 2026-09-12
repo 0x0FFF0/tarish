@@ -4,6 +4,41 @@ All notable changes to tarish will be documented in this file.
 
 ## [Unreleased]
 
+Sleep prevention work below remains unreleased from earlier development.
+
+## [v1.1.1]
+
+### Fixed
+- Skip placeholder `worker_id` values such as `unknown` when resolving miner identity
+- Treat tarish >= v1.1.0 as proxy-capable even if the heartbeat omits the capability flag
+- Restart the agent daemon after `tarish update` and when `_miner-daemon` starts so a replaced binary actually reports
+
+
+## [v1.1.0]
+
+### Added
+- Embedded OpenSnell v1.0.4 client (Snell v4/v5 TCP) behind `tarish proxy`
+- Built-in seed Snell node for subscription fetch when direct HTTPS is blocked, also used as a route fallback
+- Surge and mihomo subscription parse/fetch with last-known-good cache
+- Loopback SOCKS5 CONNECT allowlisted to the configured xmrig-proxy
+- Direct pinned-TLS fallback when no Snell node is eligible
+- `_miner-daemon` supervisor with readiness socket and owned-PID recovery
+- Panel-managed Snell subscriptions: catalog, default pool, inherit/custom/local miner modes, and a dedicated `/api/miners/{id}/snell` snapshot channel
+- Proxy dashboard page for sources, nodes, default pool, and fleet assignment
+
+### Changed
+- Client module requires Go 1.24.0 (CGO still disabled)
+- Runtime XMRig config and HTTP API token moved to the private store
+- HTTP API bound to 127.0.0.1; dashboard overrides cannot change pools, SOCKS, pin, or donation
+- systemd/launchd units supervise `_miner-daemon` instead of `start --force`
+
+### Notes
+- Proxy mode stays disabled until `tarish proxy configure` and `tarish proxy enable`
+- Nested OpenSnell tree is `third_party/opensnell` at tag v1.0.4 with a cancellation patch (see PATCH.md)
+- Real-subscription interoperability is not claimed by this changelog entry
+
+## [Unreleased] (sleep prevention)
+
 ### Added
 - **Automatic Sleep Prevention**: System now stays awake during mining operations
   - macOS: Uses native `caffeinate` to prevent idle sleep, display sleep, and disk sleep

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"tarish/cpu"
+	"tarish/proxy"
 	"tarish/xmrig"
 )
 
@@ -35,6 +36,8 @@ type StatusReport struct {
 	Hashrate      *HashrateReport        `json:"hashrate,omitempty"`
 	Config        map[string]interface{} `json:"config,omitempty"`
 	TarishVersion string                 `json:"tarish_version"`
+	Capabilities  []string               `json:"capabilities,omitempty"`
+	Proxy         *proxy.PublicStatus    `json:"proxy,omitempty"`
 }
 
 func buildReport(cpuInfo *cpu.Info, version string) *StatusReport {
@@ -56,7 +59,12 @@ func buildReport(cpuInfo *cpu.Info, version string) *StatusReport {
 	port, accessToken := xmrig.GetHTTPConfigFromRuntime()
 	liveConfig := fetchLiveConfig(port, accessToken)
 	if liveConfig != nil {
-		report.Config = liveConfig
+		report.Config = xmrig.RedactLiveConfig(liveConfig)
+	}
+
+	report.Capabilities = []string{"snell-managed"}
+	if st, err := proxy.CurrentPublicStatus(); err == nil {
+		report.Proxy = &st
 	}
 
 	report.IP = detectLANIP()

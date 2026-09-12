@@ -26,6 +26,7 @@ type Miner struct {
 	Config        map[string]interface{} `json:"config,omitempty"`
 	LastSeen      time.Time              `json:"last_seen"`
 	Status        string                 `json:"status"` // online, stale, offline
+	Snell         *MinerSnellView        `json:"snell,omitempty"`
 }
 
 type ConfigOverride struct {
@@ -66,6 +67,8 @@ type AgentReport struct {
 	Hashrate      *HashrateData          `json:"hashrate,omitempty"`
 	Config        map[string]interface{} `json:"config,omitempty"`
 	TarishVersion string                 `json:"tarish_version"`
+	Capabilities  []string               `json:"capabilities,omitempty"`
+	Proxy         map[string]interface{} `json:"proxy,omitempty"`
 }
 
 type ReportResponse struct {

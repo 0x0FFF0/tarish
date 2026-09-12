@@ -79,6 +79,7 @@ func RunDaemon() {
 	// dashboard config edits are applied almost immediately.
 	stopPoll := make(chan struct{})
 	go pollConfigLoop(stopPoll)
+	go pollSnellLoop(stopPoll)
 
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
@@ -120,6 +121,26 @@ func StartDaemon() error {
 	}
 
 	if _, running := IsDaemonRunning(); running {
+		return nil
+	}
+	return startDaemonProcess()
+}
+
+// RestartDaemon stops a running agent and starts it from the current binary.
+func RestartDaemon() error {
+	StopDaemon()
+	if !config.IsServerEnabled() || config.GetServerURL() == "" {
+		return nil
+	}
+	return startDaemonProcess()
+}
+
+func startDaemonProcess() error {
+	if !config.IsServerEnabled() {
+		return nil
+	}
+	serverURL := config.GetServerURL()
+	if serverURL == "" {
 		return nil
 	}
 
@@ -328,9 +349,23 @@ func applyConfigOverride(override map[string]interface{}, serverURL, agentID str
 	configMu.Lock()
 	defer configMu.Unlock()
 
+	if xmrig.OverrideEnablesDonation(override) {
+		fmt.Println("[agent] rejected config override: donation policy")
+		return
+	}
+
+	live := fetchLiveConfigFromRuntime()
+	sanitized, rejected := xmrig.SanitizeOverride(override, live, config.IsProxyEnabled())
+	if len(rejected) > 0 {
+		fmt.Printf("[agent] rejected protected fields in override (%s)\n", strings.Join(rejected, ","))
+	}
+	if len(sanitized) == 0 {
+		return
+	}
+
 	port, accessToken := xmrig.GetHTTPConfigFromRuntime()
 
-	body, err := json.Marshal(override)
+	body, err := json.Marshal(sanitized)
 	if err != nil {
 		fmt.Printf("[agent] failed to marshal config override: %v\n", err)
 		return
@@ -360,9 +395,13 @@ func applyConfigOverride(override map[string]interface{}, serverURL, agentID str
 		fmt.Println("[agent] applied config override from server")
 		ackConfigOverride(serverURL, agentID)
 	} else {
-		respBody, _ := io.ReadAll(resp.Body)
-		fmt.Printf("[agent] xmrig rejected config (HTTP %d): %s\n", resp.StatusCode, string(respBody))
+		fmt.Printf("[agent] xmrig rejected config (HTTP %d)\n", resp.StatusCode)
 	}
+}
+
+func fetchLiveConfigFromRuntime() map[string]interface{} {
+	port, accessToken := xmrig.GetHTTPConfigFromRuntime()
+	return fetchLiveConfig(port, accessToken)
 }
 
 func ackConfigOverride(serverURL, agentID string) {

@@ -33,6 +33,67 @@ export interface Miner {
   config: Record<string, unknown> | null
   last_seen: string
   status: string
+  snell?: MinerSnellView | null
+}
+
+export interface SnellSource {
+  id: string
+  name?: string
+  url?: string
+  format: string
+  last_success_at?: string | null
+  last_failure_at?: string | null
+  last_error?: string
+  validated_at?: string | null
+  node_count: number
+  created_at: string
+}
+
+export interface SnellNodeView {
+  id: string
+  name: string
+  source_id?: string
+  source: string
+  version: string
+  enabled: boolean
+  origin: string
+  builtin?: boolean
+  role?: string
+  psk_set: boolean
+  manual: boolean
+}
+
+export interface SnellPoolView {
+  include_source_ids: string[]
+  include_manual_ids: string[]
+  managed_proxy_enabled: boolean
+  policy_version: number
+  valid: boolean
+  node_count: number
+}
+
+export interface MinerSnellView {
+  miner_id: string
+  hostname?: string
+  mode: string
+  capable: boolean
+  supported_label?: string
+  enabled?: boolean | null
+  custom_node_ids?: string[]
+  expected_version: number
+  applied_version: number
+  selected_node?: string
+  apply_error?: string
+  proxy_enabled?: boolean
+  route?: string
+}
+
+export interface SnellCatalog {
+  sources: SnellSource[]
+  nodes: SnellNodeView[]
+  pool: SnellPoolView
+  machines: MinerSnellView[]
+  seed?: SnellNodeView
 }
 
 export interface Overview {
@@ -208,4 +269,76 @@ export const api = {
     }),
   getRecentAlerts: (limit = 25) =>
     fetchJSON<AlertLogEntry[]>(`/api/settings/alerts/recent?limit=${limit}`),
+  getSnellCatalog: () => fetchJSON<SnellCatalog>("/api/snell/catalog"),
+  addSnellSource: (input: { url: string; name?: string; format?: string }) =>
+    fetchJSON<SnellSource>("/api/snell/sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  testSnellSource: (input: { url: string; format?: string }) =>
+    fetchJSON<{ ok: boolean; error?: string; nodes?: number; skipped?: number; summary?: string }>(
+      "/api/snell/sources/test",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }
+    ),
+  syncSnellSource: (id: string) =>
+    fetchJSON<{ ok: boolean; error?: string; source?: SnellSource }>(
+      `/api/snell/sources/${encodeURIComponent(id)}/sync`,
+      { method: "POST" }
+    ),
+  deleteSnellSource: (id: string) =>
+    fetchJSON<{ ok: boolean }>(`/api/snell/sources/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  addSnellNode: (input: {
+    name: string
+    host: string
+    port: number
+    psk: string
+    version: string
+  }) =>
+    fetchJSON<SnellNodeView>("/api/snell/nodes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  updateSnellNode: (id: string, input: { name?: string; enabled?: boolean }) =>
+    fetchJSON<{ ok: boolean }>(`/api/snell/nodes/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  deleteSnellNode: (id: string) =>
+    fetchJSON<{ ok: boolean }>(`/api/snell/nodes/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  updateSnellPool: (input: {
+    include_source_ids: string[]
+    include_manual_ids: string[]
+    managed_proxy_enabled: boolean
+  }) =>
+    fetchJSON<SnellPoolView>("/api/snell/pool", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  setMinerSnell: (
+    id: string,
+    input: { mode: string; enabled?: boolean; custom_node_ids?: string[] }
+  ) =>
+    fetchJSON<{ ok: boolean }>(`/api/snell/miners/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  enrollSnellMiners: (miner_ids: string[]) =>
+    fetchJSON<{ ok: boolean }>("/api/snell/miners/enroll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ miner_ids }),
+    }),
+  exitSnellManaged: (id: string) =>
+    fetchJSON<{ ok: boolean }>(`/api/snell/miners/${encodeURIComponent(id)}/exit`, {
+      method: "POST",
+    }),
 }

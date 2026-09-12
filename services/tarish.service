@@ -5,13 +5,10 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=forking
-ExecStart=/usr/local/bin/tarish start --force
+Type=simple
+ExecStart=/usr/local/bin/tarish _miner-daemon
 ExecStop=/usr/local/bin/tarish stop
 ExecReload=/usr/local/bin/tarish stop && /usr/local/bin/tarish start --force
-
-# PID file location
-PIDFile=/root/.tarish/xmrig.pid
 
 # Restart on failure
 Restart=on-failure

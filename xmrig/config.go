@@ -521,67 +521,6 @@ func GetPlatformName() string {
 	return fmt.Sprintf("%s_%s", osName, runtime.GOARCH)
 }
 
-// GetRuntimeConfigPath returns the path to the runtime config file
-func GetRuntimeConfigPath() string {
-	return filepath.Join(GetLogDir(), "xmrig_runtime.json")
-}
-
-// PrepareRuntimeConfig creates a runtime config with api.id and worker-id populated.
-// It reads the selected config, injects identity fields, and writes to a runtime path.
-func PrepareRuntimeConfig(configPath string, cpuInfo *cpu.Info) (string, error) {
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read config: %w", err)
-	}
-
-	var raw map[string]interface{}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return "", fmt.Errorf("failed to parse config: %w", err)
-	}
-
-	// Build api.id: short CPU name + index (e.g. "m3max-0", "5900x-0")
-	shortName := getShortCPUName(cpuInfo.Family)
-	apiID := shortName + "-0"
-
-	// Build worker-id: local IP with dots replaced by dashes (e.g. "192-168-1-50")
-	workerID := buildWorkerID()
-
-	// Inject into the api section
-	apiSection, ok := raw["api"].(map[string]interface{})
-	if !ok {
-		apiSection = make(map[string]interface{})
-	}
-	apiSection["id"] = apiID
-	apiSection["worker-id"] = workerID
-	raw["api"] = apiSection
-
-	// Apply TLS xmrig-proxy settings based on tarish config
-	applyTLSPoolSettings(raw)
-
-	if err := normalizeHTTPConfig(raw); err != nil {
-		return "", err
-	}
-
-	// Keep xmrig's internal log-file aligned with Tarish's active log path so
-	// the HTTP API fallback reads the same log the miner writes.
-	raw["log-file"] = GetLogFile()
-
-	// Write runtime config
-	runtimePath := GetRuntimeConfigPath()
-	output, err := json.MarshalIndent(raw, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal config: %w", err)
-	}
-	output = append(output, '\n')
-
-	if err := os.WriteFile(runtimePath, output, 0666); err != nil {
-		return "", fmt.Errorf("failed to write runtime config: %w", err)
-	}
-	os.Chmod(runtimePath, 0666)
-
-	return runtimePath, nil
-}
-
 func normalizeHTTPConfig(raw map[string]interface{}) error {
 	httpSection, ok := raw["http"].(map[string]interface{})
 	if !ok {

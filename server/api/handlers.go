@@ -80,6 +80,10 @@ func (s *Server) handleGetMiner(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if snellView, err := s.store.GetMinerSnell(id); err == nil {
+		miner.Snell = snellView
+	}
+
 	writeJSON(w, miner)
 }
 

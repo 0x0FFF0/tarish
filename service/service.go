@@ -34,13 +34,12 @@ const launchPlistTemplate = `<?xml version="1.0" encoding="UTF-8"?>
     <key>ProgramArguments</key>
     <array>
         <string>%s</string>
-        <string>start</string>
-        <string>--force</string>
+        <string>_miner-daemon</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <false/>
+    <true/>
     <key>StandardOutPath</key>
     <string>%s</string>
     <key>StandardErrorPath</key>
@@ -58,14 +57,13 @@ Description=Tarish Donate-free XMRig Manager
 After=network.target
 
 [Service]
-Type=forking
+Type=simple
 User=%s
 Environment=HOME=%s
 Environment=TARISH_HOME=%s
 Environment=TARISH_USER=%s
-ExecStart=%s start --force
+ExecStart=%s _miner-daemon
 ExecStop=%s stop
-PIDFile=%s
 Restart=on-failure
 RestartSec=10
 WorkingDirectory=%s
@@ -311,7 +309,6 @@ func enableLinux() error {
 
 	// Get share path and PID file
 	sharePath := findSharePath(binPath)
-	pidFile := filepath.Join(sharePath, "log", "xmrig.pid")
 	identity, err := userctx.Current()
 	if err != nil {
 		return err
@@ -322,7 +319,7 @@ func enableLinux() error {
 
 	// Write service file
 	servicePath := filepath.Join(systemdPath, systemdService)
-	serviceContent := fmt.Sprintf(systemdTemplate, identity.Username, identity.HomeDir, identity.HomeDir, identity.Username, binPath, binPath, pidFile, sharePath)
+	serviceContent := fmt.Sprintf(systemdTemplate, identity.Username, identity.HomeDir, identity.HomeDir, identity.Username, binPath, binPath, sharePath)
 	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
 		return fmt.Errorf("failed to write systemd service: %w", err)
 	}

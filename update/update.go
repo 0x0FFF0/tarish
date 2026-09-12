@@ -81,9 +81,16 @@ func AutoUpdate() AutoUpdateResult {
 	}
 
 	Version = latestVersion // update in-memory so the rest of this invocation sees the new version
-	fmt.Println("Auto-update complete. New version active on next invocation.")
+	fmt.Println("Auto-update complete. Restarting agent to load the new binary.")
+	if AfterApply != nil {
+		AfterApply()
+	}
 	return AutoUpdateApplied
 }
+
+// AfterApply is invoked after a successful auto-update so callers can
+// restart long-lived daemons that still hold the old process image.
+var AfterApply func()
 
 // downloadAndReplace fetches the platform binary and replaces the current one
 func downloadAndReplace() error {

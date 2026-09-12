@@ -159,13 +159,6 @@ func Stop() error {
 	}
 
 	// Clean up any orphaned xmrig processes
-	orphans := findXmrigProcesses()
-	for _, pid := range orphans {
-		if err := killProcess(pid); err == nil {
-			killed = true
-		}
-	}
-
 	// Remove PID file
 	os.Remove(GetPIDFile())
 

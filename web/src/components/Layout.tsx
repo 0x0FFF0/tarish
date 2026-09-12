@@ -1,10 +1,11 @@
 import { NavLink, Outlet } from "react-router-dom"
 import { cn } from "@/lib/utils"
-import { BellRing, BookOpenText, LayoutDashboard, Server } from "lucide-react"
+import { BellRing, BookOpenText, LayoutDashboard, Server, Waypoints } from "lucide-react"
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/miners", label: "Miners", icon: Server },
+  { to: "/snell", label: "Proxy", icon: Waypoints },
   { to: "/guides", label: "Guides", icon: BookOpenText },
   { to: "/settings", label: "Settings", icon: BellRing },
 ]

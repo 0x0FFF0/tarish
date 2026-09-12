@@ -13,6 +13,7 @@ import (
 	"tarish/deps"
 	"tarish/embedded"
 	"tarish/install"
+	"tarish/proxy"
 	"tarish/service"
 	"tarish/update"
 	"tarish/xmrig"
@@ -30,6 +31,11 @@ func main() {
 
 	// Set version for update package
 	update.Version = Version
+	update.AfterApply = func() {
+		if err := agent.RestartDaemon(); err != nil {
+			fmt.Printf("Warning: failed to restart agent after update: %v\n", err)
+		}
+	}
 
 	if len(os.Args) < 2 {
 		printHelp()
@@ -47,6 +53,14 @@ func main() {
 		// Hidden internal command: runs the agent reporting loop.
 		agent.Version = Version
 		agent.RunDaemon()
+		return
+	case "_miner-daemon":
+		if err := deps.Ensure("start", nil); err != nil {
+			fmt.Printf("Dependency check failed: %v\n", err)
+			os.Exit(1)
+		}
+		startAgentDaemonIfPossible()
+		proxy.RunDaemon()
 		return
 	}
 
@@ -86,6 +100,8 @@ func main() {
 		handleService()
 	case "tls":
 		handleTLS()
+	case "proxy":
+		handleProxy()
 	case "server":
 		handleServer()
 	case "help", "h", "-h", "--help":
@@ -173,6 +189,11 @@ func handleUpdate() {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
+	if err := agent.RestartDaemon(); err != nil {
+		fmt.Printf("Warning: failed to restart agent: %v\n", err)
+	} else {
+		fmt.Println("Agent daemon restarted with the current binary")
+	}
 }
 
 func handleStart() {
@@ -185,9 +206,8 @@ func handleStart() {
 		}
 	}
 
-	// Check if already running
-	if pid, running := xmrig.IsRunning(); running && !force {
-		fmt.Printf("xmrig is already running (PID: %d)\n", pid)
+	if pid, running := proxy.IsSupervisorRunning(); running && !force {
+		fmt.Printf("tarish is already running (supervisor PID: %d)\n", pid)
 		fmt.Print("Kill and restart? [y/N]: ")
 		reader := bufio.NewReader(os.Stdin)
 		response, _ := reader.ReadString('\n')
@@ -200,59 +220,8 @@ func handleStart() {
 		force = true
 	}
 
-	// Detect CPU and get appropriate config
-	fmt.Println("Detecting CPU...")
-	cpuInfo, err := cpu.Detect()
-	if err != nil {
-		fmt.Printf("Error detecting CPU: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("  CPU: %s\n", cpuInfo.RawModel)
-	fmt.Printf("  Family: %s\n", cpuInfo.Family)
-	fmt.Printf("  Cores: %d\n", cpuInfo.Cores)
-	fmt.Printf("  Arch: %s/%s\n", cpuInfo.OS, cpuInfo.Arch)
-
-	// Find config
-	configsPath := xmrig.GetInstalledConfigPath()
-	configPath, err := xmrig.SelectConfig(cpuInfo, configsPath)
-	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-		fmt.Println("\nAvailable configs:")
-		configs, _ := xmrig.ListAvailableConfigs()
-		for _, c := range configs {
-			fmt.Printf("  - %s\n", c)
-		}
-		os.Exit(1)
-	}
-	fmt.Printf("  Config: %s\n", configPath)
-
-	// Find binary
-	binaryInfo, err := xmrig.GetInstalledBinaryPath()
-	if err != nil {
-		fmt.Printf("Error finding xmrig binary: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("  XMRig: %s (v%s)\n", binaryInfo.Path, binaryInfo.Version)
-
-	// Show TLS status
-	if config.IsTLSXmrigProxyEnabled() {
-		fmt.Printf("  TLS: enabled (stratum+ssl port 2083, fallback port 3333)\n")
-	} else {
-		fmt.Printf("  TLS: disabled (plain stratum port 3333)\n")
-	}
-
-	// Prepare runtime config with api.id and worker-id
-	runtimeConfigPath, err := xmrig.PrepareRuntimeConfig(configPath, cpuInfo)
-	if err != nil {
-		fmt.Printf("Warning: Failed to prepare runtime config, using original: %v\n", err)
-		runtimeConfigPath = configPath
-	} else {
-		fmt.Printf("  Worker: api.id and worker-id assigned\n")
-	}
-
-	// Start xmrig
-	fmt.Println("\nStarting xmrig...")
-	if err := xmrig.Start(binaryInfo.Path, runtimeConfigPath, force); err != nil {
+	fmt.Println("Starting tarish supervisor...")
+	if err := proxy.StartAndWait(force, 0); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -274,9 +243,12 @@ func handleStop() {
 	// Stop agent daemon
 	agent.StopDaemon()
 
-	// Stop auto-update daemon
 	update.StopDaemon()
 
+	if err := proxy.StopSupervisor(); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
 	if err := xmrig.Stop(); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -388,7 +360,7 @@ func handleStatus() {
 }
 
 func startAgentDaemonIfPossible() {
-	if err := agent.StartDaemon(); err != nil {
+	if err := agent.RestartDaemon(); err != nil {
 		fmt.Printf("Warning: failed to start agent daemon: %v\n", err)
 	}
 }
@@ -448,6 +420,10 @@ func handleTLS() {
 		fmt.Println("  Non-TLS fallback on port 3333 will be used if TLS fails")
 		fmt.Println("  Restart mining for changes to take effect: tarish start --force")
 	case "disable":
+		if err := config.TLSDisableAllowed(); err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
 		if err := config.SetTLSXmrigProxy(false); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			os.Exit(1)
@@ -459,6 +435,13 @@ func handleTLS() {
 	default:
 		fmt.Printf("Unknown tls command: %s\n", sub)
 		fmt.Println("Usage: tarish tls <enable|disable|status>")
+		os.Exit(1)
+	}
+}
+
+func handleProxy() {
+	if err := proxy.Handle(os.Args[2:]); err != nil {
+		fmt.Printf("Error: %s\n", proxy.ErrorCode(err))
 		os.Exit(1)
 	}
 }
@@ -684,6 +667,14 @@ func printHelp() {
     %stls enable%s       Enable TLS to xmrig-proxy (default)
     %stls disable%s      Disable TLS, use plain stratum
 
+    %sproxy configure%s  Set subscription URL (hidden input)
+    %sproxy configure --stdin%s  Load Surge/mihomo document from stdin
+    %sproxy enable%s     Enable Snell proxy mode
+    %sproxy disable%s    Disable proxy mode
+    %sproxy status%s     Show redacted proxy status
+    %sproxy refresh%s    Refresh subscription
+    %sproxy test%s       Probe stored nodes (safe codes only)
+
     %sserver set <url>%s                 Set dashboard server URL
     server enable                   Enable miner/server communication
     server disable                  Disable miner/server communication
@@ -718,6 +709,13 @@ func printHelp() {
 		green, reset,
 		green, reset,
 		gray, reset,
+		green, reset,
+		green, reset,
+		green, reset,
+		green, reset,
+		green, reset,
+		green, reset,
+		green, reset,
 		green, reset,
 		green, reset,
 		green, reset,

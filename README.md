@@ -24,6 +24,9 @@ Tarish is a user-friendly wrapper for XMRig that simplifies cryptocurrency minin
 - x86_64: Ubuntu, Debian, Fedora, CentOS, Arch, etc.
 - ARM64: Raspberry Pi, ARM servers
 
+Building the client from source needs Go 1.24.0 or newer with `CGO_ENABLED=0`.
+The server module is separate and still uses CGO for sqlite.
+
 ## Quick Start
 
 ### Installation
@@ -66,6 +69,48 @@ tarish status
 # Stop mining
 tarish stop
 ```
+
+### Optional Snell proxy (v1.1.0)
+
+Proxy mode is off until you configure a subscription and enable it. XMRig still
+connects to the real xmrig-proxy host with the existing TLS pin. Tarish only
+adds a loopback SOCKS5 CONNECT frontend and an embedded OpenSnell client.
+
+```bash
+# Interactive URL (not echoed)
+tarish proxy configure
+
+# Or paste a Surge / mihomo document
+tarish proxy configure --stdin < nodes.yaml
+
+tarish proxy enable
+tarish proxy status
+tarish proxy refresh
+tarish proxy test
+tarish proxy disable
+```
+
+`status` and `test` print node IDs, counts, cache age, and route state
+(`proxied`, `direct-fallback`, `waiting`, `disabled`). They never print
+node names, addresses, PSKs, or the subscription URL.
+
+If every Snell node fails, mining falls back to a direct TLS connection to
+the same pinned pool. There is no plaintext pool in proxy mode. Disable
+proxy before `tarish tls disable`.
+
+A built-in seed Snell node is compiled in. Direct HTTPS subscription fetches
+still go out first. If that path is blocked, tarish retries the same HTTPS
+GET through the seed node, then keeps that node as a route fallback so
+mining can start before a full list arrives. Status output still omits
+addresses and PSKs.
+
+Subscription files live in the owner-only tree under
+`~/.local/share/tarish/private` (0700/0600). Auto-update still applies on
+the next controlled restart, not mid-session.
+
+Rollback: `tarish proxy disable` restores non-proxy pool behavior after a
+controlled reconnect. Downgrading the binary needs a stop, restore of the
+old service unit, then start of the old build.
 
 ### Auto-start on Boot
 

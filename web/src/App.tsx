@@ -5,6 +5,7 @@ import Miners from "@/pages/Miners"
 import MinerDetail from "@/pages/MinerDetail"
 import Guides from "@/pages/Guides"
 import Settings from "@/pages/Settings"
+import Snell from "@/pages/Snell"
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/miners" element={<Miners />} />
           <Route path="/miners/:id" element={<MinerDetail />} />
+          <Route path="/snell" element={<Snell />} />
           <Route path="/guides" element={<Guides />} />
           <Route path="/settings" element={<Settings />} />
         </Route>

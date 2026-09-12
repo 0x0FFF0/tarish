@@ -28,6 +28,8 @@ type Config struct {
 	ServerAccessClientID     string `json:"server_access_client_id,omitempty"`
 	ServerAccessClientSecret string `json:"server_access_client_secret,omitempty"`
 	ServerAPIKey             string `json:"server_api_key,omitempty"` // deprecated, migrated to server_agent_key
+	ProxyEnabled             *bool  `json:"proxy_enabled,omitempty"`
+	ProxyFormat              string `json:"proxy_format,omitempty"`
 }
 
 // ConfigDir returns the tarish config directory for the owning user account.
@@ -37,6 +39,16 @@ func ConfigDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".local", "share", "tarish"), nil
+}
+
+// PrivateDir is the owner-only subtree for subscription secrets and runtime
+// miner config. Directories are 0700; files should be 0600.
+func PrivateDir() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "private"), nil
 }
 
 func configPath() (string, error) {
@@ -284,3 +296,53 @@ func GetServerAPIKey() string { return GetServerAgentKey() }
 
 // SetServerAPIKey is deprecated, use SetServerAgentKey
 func SetServerAPIKey(key string) error { return SetServerAgentKey(key) }
+
+// IsProxyEnabled reports whether Snell proxy mode is explicitly enabled.
+// Missing configuration means disabled.
+func IsProxyEnabled() bool {
+	cfg := Load()
+	if cfg.ProxyEnabled == nil {
+		return false
+	}
+	return *cfg.ProxyEnabled
+}
+
+// SetProxyEnabled persists the proxy-mode flag. Enabling still requires a
+// usable private snapshot; the supervisor fails closed if secrets are missing.
+func SetProxyEnabled(enabled bool) error {
+	cfg := Load()
+	cfg.ProxyEnabled = &enabled
+	return Save(cfg)
+}
+
+// GetProxyFormat returns the configured subscription format (auto|surge|mihomo).
+func GetProxyFormat() string {
+	f := strings.TrimSpace(Load().ProxyFormat)
+	if f == "" {
+		return "auto"
+	}
+	return f
+}
+
+// SetProxyFormat persists the subscription format hint.
+func SetProxyFormat(format string) error {
+	cfg := Load()
+	cfg.ProxyFormat = strings.TrimSpace(format)
+	return Save(cfg)
+}
+
+// FormatProxyStatus is a public, secret-free summary.
+func FormatProxyStatus() string {
+	if IsProxyEnabled() {
+		return "enabled"
+	}
+	return "disabled"
+}
+
+// TLSDisableAllowed is false while proxy mode is on.
+func TLSDisableAllowed() error {
+	if IsProxyEnabled() {
+		return fmt.Errorf("disable proxy mode before turning TLS off")
+	}
+	return nil
+}

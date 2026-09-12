@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -92,7 +93,11 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	return s.migrateBark()
+	if err := s.migrateBark(); err != nil {
+		return err
+	}
+
+	return s.migrateSnell()
 }
 
 func (s *Store) UpsertMiner(report *models.AgentReport) error {
@@ -127,6 +132,14 @@ func (s *Store) UpsertMiner(report *models.AgentReport) error {
 	defer tx.Rollback()
 
 	if err := migrateLegacyMinerID(tx, id, report); err != nil {
+		return err
+	}
+	if err := migratePlaceholderMinerID(tx, id, report); err != nil {
+		return err
+	}
+
+	var existed int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM miners WHERE id = ?`, id).Scan(&existed); err != nil {
 		return err
 	}
 
@@ -174,7 +187,31 @@ func (s *Store) UpsertMiner(report *models.AgentReport) error {
 		return err
 	}
 
+	capable := reportSnellCapable(report)
+	proxyJSON := ""
+	if report.Proxy != nil {
+		if data, err := json.Marshal(report.Proxy); err == nil {
+			proxyJSON = string(data)
+		}
+	}
+	if err := enrollMinerSnellTx(tx, id, capable, existed == 0, s); err != nil {
+		return err
+	}
+	if proxyJSON != "" || capable {
+		if _, err := tx.Exec(`UPDATE miner_snell SET capable = CASE WHEN ? = 1 THEN 1 ELSE capable END, proxy_json = CASE WHEN ? != '' THEN ? ELSE proxy_json END WHERE miner_id = ?`,
+			boolInt(capable), proxyJSON, proxyJSON, id); err != nil {
+			return err
+		}
+	}
+
 	return tx.Commit()
+}
+
+func boolInt(v bool) int {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func (s *Store) GetMiners() ([]*models.Miner, error) {
@@ -268,6 +305,9 @@ func (s *Store) DeleteMiner(id string) (bool, error) {
 		return false, err
 	}
 	if _, err := tx.Exec(`DELETE FROM alert_state WHERE miner_id = ?`, id); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(`DELETE FROM miner_snell WHERE miner_id = ?`, id); err != nil {
 		return false, err
 	}
 
@@ -512,6 +552,75 @@ func migrateLegacyMinerID(tx *sql.Tx, id string, report *models.AgentReport) err
 	}
 
 	_, err = tx.Exec(`DELETE FROM miners WHERE id = ?`, legacyID)
+	return err
+}
+
+func migratePlaceholderMinerID(tx *sql.Tx, id string, report *models.AgentReport) error {
+	if id == "" || report == nil {
+		return nil
+	}
+	ip := strings.TrimSpace(report.IP)
+	if ip == "" {
+		return nil
+	}
+	rows, err := tx.Query(`SELECT id FROM miners WHERE ip = ? AND id != ?`, ip, id)
+	if err != nil {
+		return err
+	}
+	var oldIDs []string
+	for rows.Next() {
+		var oldID string
+		if err := rows.Scan(&oldID); err != nil {
+			rows.Close()
+			return err
+		}
+		if placeholderIdentity(oldID) {
+			oldIDs = append(oldIDs, oldID)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, oldID := range oldIDs {
+		if err := rekeyMinerID(tx, oldID, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rekeyMinerID(tx *sql.Tx, oldID, newID string) error {
+	if oldID == "" || newID == "" || oldID == newID {
+		return nil
+	}
+	if _, err := tx.Exec(`UPDATE hashrate_history SET miner_id = ? WHERE miner_id = ?`, newID, oldID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		DELETE FROM config_overrides
+		WHERE miner_id = ?
+		  AND EXISTS (SELECT 1 FROM config_overrides WHERE miner_id = ?)
+	`, oldID, newID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE config_overrides SET miner_id = ? WHERE miner_id = ?`, newID, oldID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM alert_state WHERE miner_id = ?`, oldID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		DELETE FROM miner_snell
+		WHERE miner_id = ?
+		  AND EXISTS (SELECT 1 FROM miner_snell WHERE miner_id = ?)
+	`, oldID, newID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE miner_snell SET miner_id = ? WHERE miner_id = ?`, newID, oldID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(`DELETE FROM miners WHERE id = ?`, oldID)
 	return err
 }
 

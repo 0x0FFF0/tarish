@@ -50,3 +50,23 @@ func TestServerToggleKeepsStoredServerConfig(t *testing.T) {
 		t.Fatalf("GetServerAgentKey() = %q, want configured key to remain stored", got)
 	}
 }
+
+func TestProxyDefaultDisabledAndTLSGuard(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TARISH_HOME", tmp)
+	t.Setenv("TARISH_USER", "tester")
+	t.Setenv("SUDO_USER", "")
+
+	if IsProxyEnabled() {
+		t.Fatal("proxy must default to disabled")
+	}
+	if err := TLSDisableAllowed(); err != nil {
+		t.Fatalf("tls disable allowed when proxy off: %v", err)
+	}
+	if err := SetProxyEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	if err := TLSDisableAllowed(); err == nil {
+		t.Fatal("tls disable must fail while proxy enabled")
+	}
+}

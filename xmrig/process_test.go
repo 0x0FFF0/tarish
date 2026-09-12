@@ -15,6 +15,9 @@ import (
 func TestPrepareRuntimeConfigUsesActiveLogFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("TARISH_HOME", home)
+	t.Setenv("TARISH_USER", "tester")
+	t.Setenv("SUDO_USER", "")
 
 	originalListenPort := listenPort
 	listenPort = func(host string, port int) (net.Listener, error) {
@@ -69,6 +72,9 @@ func TestPrepareRuntimeConfigUsesActiveLogFile(t *testing.T) {
 func TestPrepareRuntimeConfigChoosesAvailableHTTPPort(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("TARISH_HOME", home)
+	t.Setenv("TARISH_USER", "tester")
+	t.Setenv("SUDO_USER", "")
 
 	configDir := filepath.Join(home, ".local", "share", "tarish", "configs")
 	logDir := filepath.Join(home, ".local", "share", "tarish", "log")
@@ -135,11 +141,18 @@ func TestPrepareRuntimeConfigChoosesAvailableHTTPPort(t *testing.T) {
 	if int(port) != selectedPort {
 		t.Fatalf("runtime port = %d, want %d", int(port), selectedPort)
 	}
+	httpHost, _ := httpSection["host"].(string)
+	if httpHost != "127.0.0.1" {
+		t.Fatalf("http host = %q, want 127.0.0.1", httpHost)
+	}
 }
 
 func TestParseLogFileUsesConfiguredRuntimeLogFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("TARISH_HOME", home)
+	t.Setenv("TARISH_USER", "tester")
+	t.Setenv("SUDO_USER", "")
 
 	configDir := filepath.Join(home, ".local", "share", "tarish", "configs")
 	logDir := filepath.Join(home, ".local", "share", "tarish", "log")
@@ -152,6 +165,9 @@ func TestParseLogFileUsesConfiguredRuntimeLogFile(t *testing.T) {
 
 	configuredLog := filepath.Join(t.TempDir(), "configured-xmrig.log")
 	runtimeJSON := `{"log-file":"` + configuredLog + `"}`
+	if err := os.MkdirAll(filepath.Dir(GetRuntimeConfigPath()), 0700); err != nil {
+		t.Fatalf("mkdir runtime: %v", err)
+	}
 	if err := os.WriteFile(GetRuntimeConfigPath(), []byte(runtimeJSON), 0644); err != nil {
 		t.Fatalf("write runtime config: %v", err)
 	}
@@ -176,6 +192,9 @@ func TestParseLogFileUsesConfiguredRuntimeLogFile(t *testing.T) {
 func TestParseLogFileFallsBackToTarishLogFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("TARISH_HOME", home)
+	t.Setenv("TARISH_USER", "tester")
+	t.Setenv("SUDO_USER", "")
 
 	configDir := filepath.Join(home, ".local", "share", "tarish", "configs")
 	logDir := filepath.Join(home, ".local", "share", "tarish", "log")
@@ -188,6 +207,9 @@ func TestParseLogFileFallsBackToTarishLogFile(t *testing.T) {
 
 	configuredLog := filepath.Join(t.TempDir(), "configured-xmrig.log")
 	runtimeJSON := `{"log-file":"` + configuredLog + `"}`
+	if err := os.MkdirAll(filepath.Dir(GetRuntimeConfigPath()), 0700); err != nil {
+		t.Fatalf("mkdir runtime: %v", err)
+	}
 	if err := os.WriteFile(GetRuntimeConfigPath(), []byte(runtimeJSON), 0644); err != nil {
 		t.Fatalf("write runtime config: %v", err)
 	}

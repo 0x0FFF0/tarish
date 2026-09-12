@@ -28,9 +28,13 @@ func Enable() error {
 	guardMu.Lock()
 	defer guardMu.Unlock()
 
-	// If already enabled, do nothing
-	if globalGuard != nil && globalGuard.active {
-		return nil
+	if globalGuard != nil {
+		globalGuard.mu.Lock()
+		active := globalGuard.active
+		globalGuard.mu.Unlock()
+		if active {
+			return nil
+		}
 	}
 
 	guard := &Guard{}

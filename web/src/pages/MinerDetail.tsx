@@ -1,12 +1,13 @@
 import { useState } from "react"
 import { useParams, Link, useNavigate } from "react-router-dom"
 import { usePoll } from "@/hooks/use-poll"
-import { api, type Miner, type HashrateHistory } from "@/lib/api"
+import { api, type Miner, type HashrateHistory, type SnellCatalog } from "@/lib/api"
 import { formatHashrate, formatUptime, formatTimeAgo, displayName, friendlyCPU } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
 import { ArrowLeft, Cpu, Globe, HardDrive, Clock, Gauge, Trash2 } from "lucide-react"
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts"
 import ConfigEditor from "@/components/ConfigEditor"
@@ -16,8 +17,10 @@ export default function MinerDetail() {
   const navigate = useNavigate()
   const { data: miner, refresh } = usePoll<Miner>(() => api.getMiner(id!), 10000)
   const { data: history } = usePoll<HashrateHistory[]>(() => api.getHashrateHistory(id, 6), 30000)
+  const { data: catalog } = usePoll<SnellCatalog>(() => api.getSnellCatalog(), 15000)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [snellBusy, setSnellBusy] = useState(false)
 
   if (!miner) {
     return <div className="flex h-64 items-center justify-center text-muted-foreground">Loading...</div>
@@ -129,6 +132,159 @@ export default function MinerDetail() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Proxy</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          {!miner.snell?.capable ? (
+            <p className="text-muted-foreground">Old client — enroll is available; restart tarish to apply snapshots.</p>
+          ) : null}
+          {(miner.snell?.capable || miner.snell) && (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {([
+                  ["inherit", "Inherit"],
+                  ["custom", "Custom"],
+                  ["local", "Local"],
+                ] as const).map(([mode, label]) => (
+                  <Button
+                    key={mode}
+                    size="sm"
+                    variant={miner.snell?.mode === mode ? "default" : "outline"}
+                    disabled={snellBusy}
+                    onClick={async () => {
+                      setSnellBusy(true)
+                      try {
+                        if (mode === "local" && miner.snell?.mode !== "local") {
+                          await api.exitSnellManaged(miner.id)
+                        } else if (mode === "inherit") {
+                          await api.setMinerSnell(miner.id, {
+                            mode: "inherit",
+                            custom_node_ids: miner.snell?.custom_node_ids,
+                          })
+                        } else {
+                          await api.setMinerSnell(miner.id, {
+                            mode,
+                            custom_node_ids: miner.snell?.custom_node_ids,
+                            enabled: miner.snell?.enabled ?? true,
+                          })
+                        }
+                        await refresh()
+                      } finally {
+                        setSnellBusy(false)
+                      }
+                    }}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-muted-foreground">
+                expected {miner.snell?.expected_version ?? 0} · applied {miner.snell?.applied_version ?? 0}
+                {miner.snell?.apply_error ? ` · ${miner.snell.apply_error}` : ""}
+              </p>
+              {miner.snell?.mode === "inherit" ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2">
+                    <Switch
+                      checked={miner.snell.enabled ?? !!catalog?.pool.managed_proxy_enabled}
+                      disabled={snellBusy}
+                      onCheckedChange={async on => {
+                        setSnellBusy(true)
+                        try {
+                          await api.setMinerSnell(miner.id, {
+                            mode: "inherit",
+                            enabled: on,
+                            custom_node_ids: miner.snell?.custom_node_ids,
+                          })
+                          await refresh()
+                        } finally {
+                          setSnellBusy(false)
+                        }
+                      }}
+                    />
+                    <span>Override</span>
+                  </label>
+                  {miner.snell.enabled != null ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={snellBusy}
+                      onClick={async () => {
+                        setSnellBusy(true)
+                        try {
+                          await api.setMinerSnell(miner.id, {
+                            mode: "inherit",
+                            custom_node_ids: miner.snell?.custom_node_ids,
+                          })
+                          await refresh()
+                        } finally {
+                          setSnellBusy(false)
+                        }
+                      }}
+                    >
+                      Follow pool
+                    </Button>
+                  ) : (
+                    <span className="text-muted-foreground">Follow pool</span>
+                  )}
+                </div>
+              ) : null}
+              {miner.snell?.mode === "custom" ? (
+                <div className="space-y-3">
+                  <label className="flex items-center gap-2">
+                    <Switch
+                      checked={miner.snell.enabled ?? true}
+                      disabled={snellBusy}
+                      onCheckedChange={async on => {
+                        setSnellBusy(true)
+                        try {
+                          await api.setMinerSnell(miner.id, {
+                            mode: "custom",
+                            enabled: on,
+                            custom_node_ids: miner.snell?.custom_node_ids,
+                          })
+                          await refresh()
+                        } finally {
+                          setSnellBusy(false)
+                        }
+                      }}
+                    />
+                    <span>Enable</span>
+                  </label>
+                  <div className="grid gap-1">
+                    {(catalog?.nodes ?? []).filter(n => !n.builtin).map(n => {
+                      const checked = (miner.snell?.custom_node_ids ?? []).includes(n.id)
+                      return (
+                        <label key={n.id} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={async e => {
+                              const ids = new Set(miner.snell?.custom_node_ids ?? [])
+                              if (e.target.checked) ids.add(n.id)
+                              else ids.delete(n.id)
+                              await api.setMinerSnell(miner.id, {
+                                mode: "custom",
+                                enabled: miner.snell?.enabled ?? true,
+                                custom_node_ids: [...ids],
+                              })
+                              await refresh()
+                            }}
+                          />
+                          {n.name}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <ConfigEditor miner={miner} onApplied={refresh} />
     </div>
