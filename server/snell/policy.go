@@ -1,6 +1,7 @@
 package snell
 
 import (
+	"strings"
 	"time"
 
 	"tarish/snellspec"
@@ -29,6 +30,7 @@ type MinerPolicy struct {
 	Enabled         *bool
 	CustomNodeIDs   []string
 	ExpectedVersion int
+	PinnedNode      string
 }
 
 func PoolValid(nodes []CatalogNode, pool PoolConfig) bool {
@@ -117,12 +119,46 @@ func ComputeEffectiveSnapshot(nodes []CatalogNode, pool PoolConfig, miner MinerP
 		}
 	}
 	doc.Nodes = wire
+	doc.PreferredNode = preferredNode(nodes, wire, miner.PinnedNode)
+	if doc.PreferredNode != "" && !containsWire(wire, doc.PreferredNode) {
+		for _, n := range nodes {
+			if n.Enabled && n.Spec.ID == doc.PreferredNode && !snellspec.IsSeed(n.Spec) {
+				doc.Nodes = append(doc.Nodes, snellspec.ToWireNode(n.Spec))
+				break
+			}
+		}
+	}
 	doc.ValidatedAt = validated
 	if !validated.IsZero() {
 		doc.ExpiresAt = validated.Add(snellspec.MaxCacheAge)
 	}
 	_ = now
 	return doc
+}
+
+func preferredNode(nodes []CatalogNode, wire []snellspec.WireNode, pin string) string {
+	pin = strings.TrimSpace(pin)
+	if pin == "" || snellspec.IsSeed(snellspec.NodeSpec{ID: pin}) {
+		return ""
+	}
+	if containsWire(wire, pin) {
+		return pin
+	}
+	for _, n := range nodes {
+		if n.Enabled && n.Spec.ID == pin && !snellspec.IsSeed(n.Spec) {
+			return pin
+		}
+	}
+	return ""
+}
+
+func containsWire(wire []snellspec.WireNode, id string) bool {
+	for _, n := range wire {
+		if n.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func setOf(ids []string) map[string]bool {

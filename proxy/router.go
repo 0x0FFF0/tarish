@@ -21,6 +21,8 @@ type RoutePolicy struct {
 	DirectProbeInterval time.Duration
 	RecoveryDirectMin   time.Duration
 	RecoverySuccesses   int
+	SwitchMargin        time.Duration
+	SwitchRatio         float64
 }
 
 func DefaultPolicy() RoutePolicy {
@@ -33,6 +35,8 @@ func DefaultPolicy() RoutePolicy {
 		DirectProbeInterval: DirectProbeEvery,
 		RecoveryDirectMin:   RecoveryDirectMin,
 		RecoverySuccesses:   RecoverySuccesses,
+		SwitchMargin:        SwitchMargin,
+		SwitchRatio:         SwitchRatio,
 	}
 }
 
@@ -44,6 +48,7 @@ type nodeState struct {
 	lastErr       string
 	consecutiveOK int
 	lastOK        time.Time
+	lastDelay     time.Duration
 }
 
 type Router struct {
@@ -57,6 +62,8 @@ type Router struct {
 	nodes         map[string]*nodeState
 	order         []string
 	lastSuccess   string
+	preferred     string
+	measureNode   func(ctx context.Context, id string) (time.Duration, error)
 	state         RouteState
 	directSince   time.Time
 	enabled       bool
@@ -233,6 +240,7 @@ func (r *Router) Dial(ctx context.Context, host string, port int) (net.Conn, err
 	enabled := r.enabled
 	expired := r.cacheExpired
 	last := r.lastSuccess
+	pref := r.preferred
 	r.mu.Unlock()
 	if !enabled {
 		return r.dialDirect(ctx)
@@ -250,6 +258,15 @@ func (r *Router) Dial(ctx context.Context, host string, port int) (net.Conn, err
 	}
 	selCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
+
+	if pref != "" && pref != last && r.eligible(pref) {
+		c, err := r.dialNode(selCtx, pref, host, port)
+		if err == nil {
+			r.setProxied(pref)
+			return c, nil
+		}
+		r.failNode(pref, err)
+	}
 
 	if last != "" && r.eligible(last) {
 		c, err := r.dialNode(selCtx, last, host, port)
@@ -433,6 +450,142 @@ func (r *Router) setProxied(id string) {
 	}
 }
 
+// SetPreferred pins the next dial to id. An empty id clears the pin.
+// A change drops the sticky node and reconnects so the live tunnel moves.
+func (r *Router) SetPreferred(id string) {
+	id = strings.TrimSpace(id)
+	r.mu.Lock()
+	if r.preferred == id {
+		r.mu.Unlock()
+		return
+	}
+	r.preferred = id
+	r.lastSuccess = ""
+	fn := r.reconnect
+	r.mu.Unlock()
+	if fn != nil {
+		go fn()
+	}
+}
+
+// ConsiderSwitch probes delay while a route is already up. It leaves the
+// current node in place unless that node times out or another node is
+// significantly faster. A remote pin is left untouched.
+func (r *Router) ConsiderSwitch(ctx context.Context) bool {
+	r.mu.Lock()
+	if r.preferred != "" || !r.enabled || r.state != RouteProxied || r.lastSuccess == "" {
+		r.mu.Unlock()
+		return false
+	}
+	current := r.lastSuccess
+	ids := append([]string(nil), r.order...)
+	r.mu.Unlock()
+
+	curDelay, err := r.measure(ctx, current)
+	if err != nil {
+		r.failNode(current, err)
+		bestID, bestDelay, ok := r.bestOther(ctx, current, ids)
+		if !ok {
+			return false
+		}
+		return r.commitSwitch(current, bestID, bestDelay)
+	}
+	r.noteDelay(current, curDelay)
+	bestID, bestDelay, ok := r.bestOther(ctx, current, ids)
+	if !ok {
+		return false
+	}
+	margin := r.policy.SwitchMargin
+	if margin <= 0 {
+		margin = SwitchMargin
+	}
+	ratio := r.policy.SwitchRatio
+	if ratio <= 1 {
+		ratio = SwitchRatio
+	}
+	if curDelay < bestDelay+margin {
+		return false
+	}
+	if float64(curDelay) < float64(bestDelay)*ratio {
+		return false
+	}
+	return r.commitSwitch(current, bestID, bestDelay)
+}
+
+func (r *Router) bestOther(ctx context.Context, current string, ids []string) (string, time.Duration, bool) {
+	var bestID string
+	var bestDelay time.Duration
+	found := false
+	for _, id := range ids {
+		if id == current || !r.eligible(id) {
+			continue
+		}
+		delay, err := r.measure(ctx, id)
+		if err != nil {
+			r.failNode(id, err)
+			continue
+		}
+		r.noteDelay(id, delay)
+		if !found || delay < bestDelay {
+			bestID = id
+			bestDelay = delay
+			found = true
+		}
+	}
+	return bestID, bestDelay, found
+}
+
+func (r *Router) commitSwitch(from, to string, delay time.Duration) bool {
+	r.mu.Lock()
+	if r.preferred != "" || r.lastSuccess != from || r.state != RouteProxied {
+		r.mu.Unlock()
+		return false
+	}
+	r.lastSuccess = to
+	r.state = RouteProxied
+	if st := r.nodes[to]; st != nil {
+		st.lastDelay = delay
+		st.lastErr = ""
+		st.cooldownUntil = time.Time{}
+		st.cooldownFor = 0
+	}
+	fn := r.reconnect
+	r.mu.Unlock()
+	if fn != nil {
+		go fn()
+	}
+	return true
+}
+
+func (r *Router) noteDelay(id string, delay time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if st := r.nodes[id]; st != nil {
+		st.lastDelay = delay
+	}
+}
+
+func (r *Router) measure(ctx context.Context, id string) (time.Duration, error) {
+	if r.measureNode != nil {
+		return r.measureNode(ctx, id)
+	}
+	if !r.eligible(id) {
+		return 0, errCode("retired")
+	}
+	timeout := r.policy.ProbeTimeout
+	if timeout <= 0 {
+		timeout = ProbeTimeout
+	}
+	pctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	start := time.Now()
+	err := r.probeNode(pctx, id)
+	if err != nil {
+		return 0, err
+	}
+	return time.Since(start), nil
+}
+
 func (r *Router) setDirect() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -570,6 +723,12 @@ func (r *Router) Public(now time.Time, snap *Snapshot, refreshCode string) Publi
 	}
 	if !r.enabled {
 		st.Route = RouteDisabled
+	}
+	if r.state == RouteProxied && r.lastSuccess != "" {
+		st.ActiveNode = r.lastSuccess
+		if node, ok := r.nodes[r.lastSuccess]; ok && isBootstrap(node.spec) {
+			st.ActiveFallback = true
+		}
 	}
 	if snap != nil {
 		st.Nodes = len(snap.Nodes)

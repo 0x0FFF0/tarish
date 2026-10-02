@@ -50,6 +50,7 @@ type snellMinerInput struct {
 	Mode          string   `json:"mode"`
 	Enabled       *bool    `json:"enabled"`
 	CustomNodeIDs []string `json:"custom_node_ids"`
+	PinnedNodeID  *string  `json:"pinned_node_id"`
 }
 
 type snellEnrollInput struct {
@@ -310,6 +311,14 @@ func (s *Server) handleSnellSetMiner(w http.ResponseWriter, r *http.Request) {
 	var in snellMinerInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if in.Mode == "" && in.PinnedNodeID != nil {
+		if err := s.store.SetMinerPin(id, *in.PinnedNodeID); err != nil {
+			http.Error(w, "failed to update miner", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
 		return
 	}
 	switch in.Mode {

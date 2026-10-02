@@ -82,9 +82,13 @@ func (s *Store) migrateSnell() error {
 			apply_error TEXT NOT NULL DEFAULT '',
 			selected_node TEXT NOT NULL DEFAULT '',
 			restore_json TEXT,
-			proxy_json TEXT NOT NULL DEFAULT ''
+			proxy_json TEXT NOT NULL DEFAULT '',
+			pinned_node_id TEXT NOT NULL DEFAULT ''
 		);
 	`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE miner_snell ADD COLUMN pinned_node_id TEXT NOT NULL DEFAULT ''`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 		return err
 	}
 
@@ -849,6 +853,23 @@ func (s *Store) SetMinerSnell(minerID, mode string, enabled *bool, custom []stri
 	return tx.Commit()
 }
 
+func (s *Store) SetMinerPin(minerID, nodeID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE miner_snell SET pinned_node_id = ? WHERE miner_id = ?`, strings.TrimSpace(nodeID), minerID); err != nil {
+		return err
+	}
+	if _, err := stampMinerExpectedTx(tx, minerID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) BulkEnroll(ids []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -981,10 +1002,10 @@ func (s *Store) EffectiveSnapshot(minerID string) (*snellspec.ManagedDocument, e
 	var mode string
 	var capable int
 	var enabled sql.NullInt64
-	var custom string
+	var custom, pinned string
 	var expected int
-	err := s.db.QueryRow(`SELECT mode, capable, enabled, custom_node_ids, expected_version FROM miner_snell WHERE miner_id = ?`, minerID).
-		Scan(&mode, &capable, &enabled, &custom, &expected)
+	err := s.db.QueryRow(`SELECT mode, capable, enabled, custom_node_ids, expected_version, COALESCE(pinned_node_id, '') FROM miner_snell WHERE miner_id = ?`, minerID).
+		Scan(&mode, &capable, &enabled, &custom, &expected, &pinned)
 	if err == sql.ErrNoRows {
 		return &snellspec.ManagedDocument{ProtocolVersion: snellspec.ProtocolVersion, Supported: false, Mode: snellspec.ModeLocal}, nil
 	}
@@ -1004,6 +1025,7 @@ func (s *Store) EffectiveSnapshot(minerID string) (*snellspec.ManagedDocument, e
 		Capable:         capable == 1,
 		CustomNodeIDs:   decodeIDs(custom),
 		ExpectedVersion: expected,
+		PinnedNode:      pinned,
 	}
 	if enabled.Valid {
 		v := enabled.Int64 == 1
@@ -1089,7 +1111,8 @@ func (s *Store) listMachinesTx() ([]*models.MinerSnellView, error) {
 	rows, err := s.db.Query(`
 		SELECT m.id, m.hostname, COALESCE(ms.mode, 'local'), COALESCE(ms.capable, 0), ms.enabled,
 			COALESCE(ms.custom_node_ids, '[]'), COALESCE(ms.expected_version, 0), COALESCE(ms.applied_version, 0),
-			COALESCE(ms.selected_node, ''), COALESCE(ms.apply_error, ''), COALESCE(ms.proxy_json, '')
+			COALESCE(ms.selected_node, ''), COALESCE(ms.apply_error, ''), COALESCE(ms.proxy_json, ''),
+			COALESCE(ms.pinned_node_id, '')
 		FROM miners m
 		LEFT JOIN miner_snell ms ON ms.miner_id = m.id
 		ORDER BY m.hostname ASC
@@ -1104,7 +1127,7 @@ func (s *Store) listMachinesTx() ([]*models.MinerSnellView, error) {
 		var capable int
 		var enabled sql.NullInt64
 		var custom, proxyJSON string
-		if err := rows.Scan(&v.MinerID, &v.Hostname, &v.Mode, &capable, &enabled, &custom, &v.ExpectedVersion, &v.AppliedVersion, &v.SelectedNode, &v.ApplyError, &proxyJSON); err != nil {
+		if err := rows.Scan(&v.MinerID, &v.Hostname, &v.Mode, &capable, &enabled, &custom, &v.ExpectedVersion, &v.AppliedVersion, &v.SelectedNode, &v.ApplyError, &proxyJSON, &v.PinnedNode); err != nil {
 			return nil, err
 		}
 		v.Capable = capable == 1
@@ -1124,6 +1147,32 @@ func (s *Store) listMachinesTx() ([]*models.MinerSnellView, error) {
 				}
 				if e, ok := p["proxy_enabled"].(bool); ok {
 					v.ProxyEnabled = e
+				}
+				if id, ok := p["active_node"].(string); ok {
+					v.ActiveNode = id
+				}
+				if fb, ok := p["active_fallback"].(bool); ok {
+					v.ActiveFallback = fb
+				}
+				if v.ActiveNode == "" {
+					if rows, ok := p["node_statuses"].([]any); ok {
+						for _, raw := range rows {
+							row, ok := raw.(map[string]any)
+							if !ok {
+								continue
+							}
+							if row["health"] != "ok" {
+								continue
+							}
+							if id, ok := row["id"].(string); ok {
+								v.ActiveNode = id
+								break
+							}
+						}
+					}
+				}
+				if v.ActiveNode == snellspec.SeedID {
+					v.ActiveFallback = true
 				}
 			}
 		}

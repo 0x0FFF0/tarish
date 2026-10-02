@@ -185,6 +185,11 @@ export default function MinerDetail() {
                 expected {miner.snell?.expected_version ?? 0} · applied {miner.snell?.applied_version ?? 0}
                 {miner.snell?.apply_error ? ` · ${miner.snell.apply_error}` : ""}
               </p>
+              {miner.snell?.active_fallback ? (
+                <p className="text-amber-400">正在使用内置兜底。当前延迟没有明显更差，所以没有自动切换。</p>
+              ) : miner.snell?.active_node ? (
+                <p className="text-muted-foreground">当前节点 {miner.snell.active_node.slice(0, 8)}</p>
+              ) : null}
               {miner.snell?.mode === "inherit" ? (
                 <div className="flex flex-wrap items-center gap-3">
                   <label className="flex items-center gap-2">

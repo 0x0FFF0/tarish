@@ -211,6 +211,132 @@ func (h *hangDialer) DialTCP(ctx context.Context, host string, port uint16) (net
 
 func (h *hangDialer) Close() error { return nil }
 
+type okDialer struct{ id string }
+
+func (d *okDialer) ID() string { return d.id }
+
+func (d *okDialer) DialTCP(context.Context, string, uint16) (net.Conn, error) {
+	a, b := net.Pipe()
+	go func() { _, _ = io.Copy(io.Discard, b) }()
+	return a, nil
+}
+
+func (d *okDialer) Close() error { return nil }
+
+func switchFixture(delays map[string]time.Duration, fail map[string]error) *Router {
+	r := NewRouter(Target{Host: "127.0.0.1", Port: 1}, "", DefaultPolicy(), realClock{})
+	r.Enable(true)
+	r.newDialer = func(spec NodeSpec) (Dialer, error) { return &okDialer{id: spec.ID}, nil }
+	r.ReplaceSnapshot(&Snapshot{Nodes: []NodeSpec{
+		{ID: "cur", Host: "10.0.0.1", Port: 1, PSK: "a", Version: "v5"},
+		{ID: "alt", Host: "10.0.0.2", Port: 1, PSK: "b", Version: "v5"},
+	}})
+	r.mu.Lock()
+	r.lastSuccess = "cur"
+	r.state = RouteProxied
+	r.mu.Unlock()
+	r.measureNode = func(_ context.Context, id string) (time.Duration, error) {
+		if err, ok := fail[id]; ok {
+			return 0, err
+		}
+		return delays[id], nil
+	}
+	return r
+}
+
+func TestConsiderSwitchKeepsSmallGap(t *testing.T) {
+	r := switchFixture(map[string]time.Duration{"cur": 120 * time.Millisecond, "alt": 80 * time.Millisecond}, nil)
+	if r.ConsiderSwitch(context.Background()) {
+		t.Fatal("small delay gap switched")
+	}
+	r.mu.Lock()
+	got := r.lastSuccess
+	r.mu.Unlock()
+	if got != "cur" {
+		t.Fatalf("lastSuccess = %s", got)
+	}
+}
+
+func TestConsiderSwitchOnTimeout(t *testing.T) {
+	r := switchFixture(map[string]time.Duration{"alt": 40 * time.Millisecond}, map[string]error{"cur": errCode("timeout")})
+	var n atomic.Int32
+	r.SetReconnect(func() { n.Add(1) })
+	if !r.ConsiderSwitch(context.Background()) {
+		t.Fatal("timeout did not switch")
+	}
+	r.mu.Lock()
+	got := r.lastSuccess
+	r.mu.Unlock()
+	if got != "alt" {
+		t.Fatalf("lastSuccess = %s", got)
+	}
+	deadline := time.Now().Add(time.Second)
+	for n.Load() != 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n.Load() != 1 {
+		t.Fatalf("reconnects = %d", n.Load())
+	}
+}
+
+func TestConsiderSwitchOnLargeGap(t *testing.T) {
+	r := switchFixture(map[string]time.Duration{
+		"cur": 900 * time.Millisecond,
+		"alt": 100 * time.Millisecond,
+	}, nil)
+	if !r.ConsiderSwitch(context.Background()) {
+		t.Fatal("large delay gap did not switch")
+	}
+	r.mu.Lock()
+	got := r.lastSuccess
+	r.mu.Unlock()
+	if got != "alt" {
+		t.Fatalf("lastSuccess = %s", got)
+	}
+}
+
+func TestPreferredDialOverridesSticky(t *testing.T) {
+	r := NewRouter(Target{Host: "127.0.0.1", Port: 9}, "", DefaultPolicy(), realClock{})
+	r.Enable(true)
+	var dialed atomic.Value
+	r.newDialer = func(spec NodeSpec) (Dialer, error) {
+		return &recordingDialer{id: spec.ID, dialed: &dialed}, nil
+	}
+	r.ReplaceSnapshot(&Snapshot{Nodes: []NodeSpec{
+		{ID: "old", Host: "10.0.0.1", Port: 1, PSK: "a", Version: "v5"},
+		{ID: "pin", Host: "10.0.0.2", Port: 1, PSK: "b", Version: "v5"},
+	}})
+	r.mu.Lock()
+	r.lastSuccess = "old"
+	r.state = RouteProxied
+	r.preferred = "pin"
+	r.mu.Unlock()
+	c, err := r.Dial(context.Background(), "127.0.0.1", 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Close()
+	if dialed.Load() != "pin" {
+		t.Fatalf("dialed %v", dialed.Load())
+	}
+}
+
+type recordingDialer struct {
+	id     string
+	dialed *atomic.Value
+}
+
+func (d *recordingDialer) ID() string { return d.id }
+
+func (d *recordingDialer) DialTCP(context.Context, string, uint16) (net.Conn, error) {
+	d.dialed.Store(d.id)
+	a, b := net.Pipe()
+	go func() { _, _ = io.Copy(io.Discard, b) }()
+	return a, nil
+}
+
+func (d *recordingDialer) Close() error { return nil }
+
 func TestTargetWideTLSFailureNotSingleNodeBlame(t *testing.T) {
 	tlsAddr, _, stopTLS := testTLSServer(t)
 	defer stopTLS()

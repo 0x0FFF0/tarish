@@ -19,6 +19,7 @@ import (
 	"tarish/antisleep"
 	"tarish/config"
 	"tarish/cpu"
+	"tarish/snellspec"
 	"tarish/xmrig"
 )
 
@@ -356,11 +357,14 @@ func (d *Daemon) probeLoop(ctx context.Context) {
 			if d.router == nil {
 				continue
 			}
-			if d.router.State() == RouteDirectFallback || d.router.State() == RouteWaiting {
-				pctx, cancel := context.WithTimeout(ctx, SelectBudget)
+			state := d.router.State()
+			pctx, cancel := context.WithTimeout(ctx, SelectBudget)
+			if state == RouteDirectFallback || state == RouteWaiting {
 				d.router.ProbeOnce(pctx)
-				cancel()
+			} else if state == RouteProxied {
+				d.router.ConsiderSwitch(pctx)
 			}
+			cancel()
 		}
 	}
 }
@@ -479,15 +483,31 @@ func (d *Daemon) applyActiveSnapshot() {
 	if expired || (err != nil && ErrorCode(err) == "cache_expired") {
 		d.router.SetCacheExpired(false)
 		d.router.ReplaceSnapshot(mergeBootstrap(nil))
+		d.applyPreferred()
 		return
 	}
 	if snap != nil {
 		d.router.SetCacheExpired(false)
 		d.router.ReplaceSnapshot(mergeBootstrap(snap))
+		d.applyPreferred()
 		return
 	}
 	d.router.SetCacheExpired(false)
 	d.router.ReplaceSnapshot(mergeBootstrap(nil))
+	d.applyPreferred()
+}
+
+func (d *Daemon) applyPreferred() {
+	if d.router == nil || d.store == nil {
+		return
+	}
+	pref := ""
+	if doc, err := d.store.LoadManaged(); err == nil && doc != nil {
+		if doc.Mode == snellspec.ModeInherit || doc.Mode == snellspec.ModeCustom {
+			pref = doc.PreferredNode
+		}
+	}
+	d.router.SetPreferred(pref)
 }
 
 func (d *Daemon) applyRefreshResult(snap *Snapshot, err error) {

@@ -65,6 +65,11 @@ func TestComputeEffectiveSnapshotModes(t *testing.T) {
 	if over.Enabled {
 		t.Fatal("explicit inherit override off should win")
 	}
+
+	pinned := ComputeEffectiveSnapshot(nodes, pool, MinerPolicy{Mode: snellspec.ModeInherit, Capable: true, PinnedNode: n1.ID}, time.Now())
+	if pinned.PreferredNode != n1.ID || len(pinned.Nodes) != 2 {
+		t.Fatalf("pin %+v", pinned)
+	}
 }
 
 func TestComputeEffectiveSnapshotDoesNotBorrowPoolVersion(t *testing.T) {

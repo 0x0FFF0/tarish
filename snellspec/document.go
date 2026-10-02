@@ -75,6 +75,7 @@ type ManagedDocument struct {
 	Enabled         bool       `json:"enabled"`
 	Supported       bool       `json:"supported"`
 	Nodes           []WireNode `json:"nodes"`
+	PreferredNode   string     `json:"preferred_node,omitempty"`
 	ValidatedAt     time.Time  `json:"validated_at"`
 	ExpiresAt       time.Time  `json:"expires_at,omitempty"`
 	ErrorCode       string     `json:"error_code,omitempty"`

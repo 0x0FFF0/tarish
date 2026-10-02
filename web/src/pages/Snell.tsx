@@ -329,7 +329,28 @@ export default function Snell() {
                     </td>
                     <td className="py-3 pr-4 align-middle">{m.expected_version}</td>
                     <td className="py-3 pr-4 align-middle">{m.applied_version}</td>
-                    <td className="py-3 pr-4 align-middle font-mono text-xs">{m.selected_node || "—"}</td>
+                    <td className="py-3 pr-4 align-middle text-xs">
+                      <ActiveNode machine={m} nodes={catalogNodes} />
+                      {m.capable && m.mode !== "local" ? (
+                        <select
+                          className="mt-1 block max-w-40 rounded-md border border-input bg-background px-2 py-1 text-xs"
+                          value={m.pinned_node || ""}
+                          disabled={busy !== ""}
+                          onChange={e =>
+                            run("pin-" + m.miner_id, () =>
+                              api.setMinerSnell(m.miner_id, { pinned_node_id: e.target.value }).then(() => undefined)
+                            )
+                          }
+                        >
+                          <option value="">自动</option>
+                          {catalogNodes.map(n => (
+                            <option key={n.id} value={n.id}>
+                              {n.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                    </td>
                     <td className="py-3 pr-4 align-middle text-destructive">{m.apply_error || ""}</td>
                     <td className="py-3 pl-4 align-middle text-right whitespace-nowrap">
                       {m.mode === "local" ? (
@@ -364,6 +385,27 @@ function showSourceError(src: { last_error?: string; last_success_at?: string | 
   if (!src.last_success_at) return true
   if (!src.last_failure_at) return false
   return Date.parse(src.last_failure_at) > Date.parse(src.last_success_at)
+}
+
+function ActiveNode({
+  machine,
+  nodes,
+}: {
+  machine: SnellCatalog["machines"][number]
+  nodes: SnellNodeView[]
+}) {
+  if (machine.active_fallback) {
+    return (
+      <div>
+        <div className="font-medium text-amber-400">内置兜底</div>
+        <div className="text-muted-foreground">延迟没有明显更差，所以没有切换</div>
+      </div>
+    )
+  }
+  const named = nodes.find(n => n.id === machine.active_node)
+  if (named) return <div>{named.name}</div>
+  if (machine.active_node) return <div className="font-mono">{machine.active_node.slice(0, 8)}</div>
+  return <div className="text-muted-foreground">—</div>
 }
 
 export function modeLabel(mode: string) {

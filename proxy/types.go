@@ -25,8 +25,12 @@ const (
 	DirectProbeEvery  = 30 * time.Second
 	RecoveryDirectMin = 2 * time.Minute
 	RecoverySuccesses = 3
-	HandshakeTimeout  = 5 * time.Second
-	MaxSOCKSConns     = 64
+	// Switch only when another node is both this much faster and at least
+	// SwitchRatio times faster. Small jitter stays on the current node.
+	SwitchMargin     = 300 * time.Millisecond
+	SwitchRatio      = 1.5
+	HandshakeTimeout = 5 * time.Second
+	MaxSOCKSConns    = 64
 )
 
 type Format = snellspec.Format
@@ -71,20 +75,22 @@ func snapshotPublicStatuses(s *Snapshot) []NodeStatus {
 }
 
 type PublicStatus struct {
-	ProxyEnabled  bool         `json:"proxy_enabled"`
-	Configured    bool         `json:"configured"`
-	Route         RouteState   `json:"route"`
-	Nodes         int          `json:"nodes"`
-	Skipped       int          `json:"skipped"`
-	CacheAge      string       `json:"cache_age,omitempty"`
-	Stale         bool         `json:"stale"`
-	Expired       bool         `json:"expired"`
-	LastRefresh   string       `json:"last_refresh,omitempty"`
-	ErrorCode     string       `json:"error_code,omitempty"`
-	NodeStatuses  []NodeStatus `json:"node_statuses,omitempty"`
-	Managed       bool         `json:"managed,omitempty"`
-	Mode          string       `json:"mode,omitempty"`
-	PolicyVersion int          `json:"policy_version,omitempty"`
+	ProxyEnabled   bool         `json:"proxy_enabled"`
+	Configured     bool         `json:"configured"`
+	Route          RouteState   `json:"route"`
+	Nodes          int          `json:"nodes"`
+	Skipped        int          `json:"skipped"`
+	CacheAge       string       `json:"cache_age,omitempty"`
+	Stale          bool         `json:"stale"`
+	Expired        bool         `json:"expired"`
+	LastRefresh    string       `json:"last_refresh,omitempty"`
+	ErrorCode      string       `json:"error_code,omitempty"`
+	NodeStatuses   []NodeStatus `json:"node_statuses,omitempty"`
+	Managed        bool         `json:"managed,omitempty"`
+	Mode           string       `json:"mode,omitempty"`
+	PolicyVersion  int          `json:"policy_version,omitempty"`
+	ActiveNode     string       `json:"active_node,omitempty"`
+	ActiveFallback bool         `json:"active_fallback,omitempty"`
 }
 
 type Target struct {

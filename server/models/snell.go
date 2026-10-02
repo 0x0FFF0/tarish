@@ -59,6 +59,9 @@ type MinerSnellView struct {
 	ApplyError      string   `json:"apply_error,omitempty"`
 	ProxyEnabled    bool     `json:"proxy_enabled,omitempty"`
 	Route           string   `json:"route,omitempty"`
+	ActiveNode      string   `json:"active_node,omitempty"`
+	ActiveFallback  bool     `json:"active_fallback,omitempty"`
+	PinnedNode      string   `json:"pinned_node,omitempty"`
 }
 
 type SnellCatalog struct {

@@ -346,6 +346,13 @@ func printStatus(out io.Writer, st PublicStatus) {
 			fmt.Fprintf(out, "mode: %s\n", st.Mode)
 		}
 	}
+	if st.ActiveNode != "" {
+		if st.ActiveFallback {
+			fmt.Fprintf(out, "active: builtin fallback %s\n", st.ActiveNode)
+		} else {
+			fmt.Fprintf(out, "active: %s\n", st.ActiveNode)
+		}
+	}
 	if st.ErrorCode != "" {
 		fmt.Fprintf(out, "error: %s\n", st.ErrorCode)
 	}

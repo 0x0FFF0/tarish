@@ -86,6 +86,9 @@ export interface MinerSnellView {
   apply_error?: string
   proxy_enabled?: boolean
   route?: string
+  active_node?: string
+  active_fallback?: boolean
+  pinned_node?: string
 }
 
 export interface SnellCatalog {
@@ -324,7 +327,7 @@ export const api = {
     }),
   setMinerSnell: (
     id: string,
-    input: { mode: string; enabled?: boolean; custom_node_ids?: string[] }
+    input: { mode?: string; enabled?: boolean; custom_node_ids?: string[]; pinned_node_id?: string }
   ) =>
     fetchJSON<{ ok: boolean }>(`/api/snell/miners/${encodeURIComponent(id)}`, {
       method: "PUT",
