@@ -94,8 +94,24 @@ func main() {
 	}()
 
 	log.Printf("tarish-server listening on %s", *addr)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
+	srv := &http.Server{Addr: *addr, Handler: mux}
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.ListenAndServe() }()
+
+	// SIGTERM (systemctl stop/restart) or Ctrl-C: stop accepting requests,
+	// let in-flight ones finish, then return so the store is closed cleanly.
+	select {
+	case err := <-serveErr:
 		log.Fatalf("Server error: %v", err)
+	case <-ctx.Done():
+	}
+	cancel() // restore default signal handling, so a second signal exits at once
+	log.Printf("tarish-server shutting down")
+
+	shutdownCtx, stopShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	defer stopShutdown()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Warning: shutdown did not finish cleanly: %v", err)
 	}
 }
 
