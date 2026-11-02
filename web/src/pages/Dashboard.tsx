@@ -40,7 +40,8 @@ export default function Dashboard() {
         />
         <StatCard
           title="Fleet Cores"
-          value={String((overview?.top_miners ?? []).reduce((s, m) => s + m.cores, 0))}
+          value={String(overview?.active_cores ?? 0)}
+          subtitle={`of ${overview?.total_cores ?? 0} total`}
           icon={<Cpu className="h-4 w-4 text-chart-3" />}
         />
       </div>

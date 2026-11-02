@@ -104,6 +104,8 @@ export interface Overview {
   average_hashrate: number
   active_miners: number
   total_miners: number
+  active_cores: number
+  total_cores: number
   top_miners: Miner[]
 }
 

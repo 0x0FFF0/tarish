@@ -57,6 +57,8 @@ type OverviewResponse struct {
 	AverageHashrate float64  `json:"average_hashrate"`
 	ActiveMiners    int      `json:"active_miners"`
 	TotalMiners     int      `json:"total_miners"`
+	ActiveCores     int      `json:"active_cores"`
+	TotalCores      int      `json:"total_cores"`
 	TopMiners       []*Miner `json:"top_miners"`
 }
 

@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -111,6 +112,40 @@ func TestUpsertMinerMigratesLegacyMinerIDRow(t *testing.T) {
 	}
 	if len(history) != 2 {
 		t.Fatalf("GetHashrateHistory len = %d, want 2", len(history))
+	}
+}
+
+func TestGetOverviewCountsCoresAcrossFleet(t *testing.T) {
+	s := newTestStore(t)
+
+	// More miners than the overview's top-5 list, and the last one offline.
+	cores := []int{192, 128, 64, 32, 16, 8, 40}
+	for i, c := range cores {
+		report := testAgentReport(fmt.Sprintf("m%d-0", i), fmt.Sprintf("192-168-10-%d", i+1),
+			fmt.Sprintf("host-%d", i), fmt.Sprintf("192.168.10.%d", i+1), float64(1000*(i+1)))
+		report.Cores = c
+		if err := s.UpsertMiner(report); err != nil {
+			t.Fatalf("UpsertMiner(%d): %v", i, err)
+		}
+	}
+	lastSeen := time.Now().UTC().Add(-10 * time.Minute).Format(time.RFC3339)
+	if _, err := s.db.Exec(`UPDATE miners SET last_seen = ? WHERE id = ?`, lastSeen, "192-168-10-7"); err != nil {
+		t.Fatalf("age miner: %v", err)
+	}
+
+	overview, err := s.GetOverview()
+	if err != nil {
+		t.Fatalf("GetOverview: %v", err)
+	}
+
+	if overview.ActiveMiners != 6 || overview.TotalMiners != 7 {
+		t.Fatalf("miners = %d of %d, want 6 of 7", overview.ActiveMiners, overview.TotalMiners)
+	}
+	if overview.ActiveCores != 440 || overview.TotalCores != 480 {
+		t.Fatalf("cores = %d of %d, want 440 of 480", overview.ActiveCores, overview.TotalCores)
+	}
+	if len(overview.TopMiners) != 5 {
+		t.Fatalf("top miners len = %d, want 5", len(overview.TopMiners))
 	}
 }
 

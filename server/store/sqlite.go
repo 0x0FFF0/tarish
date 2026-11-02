@@ -457,8 +457,10 @@ func (s *Store) GetOverview() (*models.OverviewResponse, error) {
 	}
 
 	for _, m := range miners {
+		overview.TotalCores += m.Cores
 		if m.Status == "online" {
 			overview.ActiveMiners++
+			overview.ActiveCores += m.Cores
 			if m.Hashrate != nil {
 				overview.TotalHashrate += m.Hashrate.Current
 				overview.AverageHashrate += m.Hashrate.Average
