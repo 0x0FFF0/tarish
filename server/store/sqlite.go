@@ -84,6 +84,9 @@ func (s *Store) migrate() error {
 
 		CREATE INDEX IF NOT EXISTS idx_hashrate_history_miner_ts
 			ON hashrate_history(miner_id, timestamp);
+
+		CREATE INDEX IF NOT EXISTS idx_hashrate_history_ts
+			ON hashrate_history(timestamp);
 	`)
 	if err != nil {
 		return err
@@ -642,7 +645,7 @@ func parseTime(s string) time.Time {
 
 func minerStatus(lastSeen time.Time) string {
 	since := time.Since(lastSeen)
-	if since < 90*time.Second {
+	if since < onlineWindow {
 		return "online"
 	}
 	if since < 5*time.Minute {

@@ -115,6 +115,12 @@ export interface HashrateHistory {
   max: number
 }
 
+export interface FleetHashratePoint {
+  timestamp: string
+  hashrate: number | null // null when no miner reported in the bucket
+  miners: number
+}
+
 export interface GuideLink {
   label: string
   url: string
@@ -209,6 +215,8 @@ export const api = {
     if (minerID) params.set("miner_id", minerID)
     return fetchJSON<HashrateHistory[]>(`/api/hashrate/history?${params}`)
   },
+  getFleetHashrate: (hours = 6) =>
+    fetchJSON<FleetHashratePoint[]>(`/api/hashrate/fleet?hours=${hours}`),
   getGuideDocuments: () => fetchJSON<GuideDocument[]>("/api/guides/documents"),
   startGuideEditChallenge: () =>
     fetchJSON<GuideEditChallenge>("/api/guides/edit-challenge", {

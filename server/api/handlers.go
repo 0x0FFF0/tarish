@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"tarish-server/models"
@@ -212,6 +213,32 @@ func (s *Server) handleHashrateHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, history)
+}
+
+func (s *Server) handleFleetHashrate(w http.ResponseWriter, r *http.Request) {
+	hours := queryInt(r, "hours", 6, 1, 7*24) // history is pruned after 7 days
+	step := queryInt(r, "step", 300, 60, 3600)
+
+	until := time.Now().UTC()
+	since := until.Add(-time.Duration(hours) * time.Hour)
+
+	points, err := s.store.GetFleetHashrate(since, until, time.Duration(step)*time.Second)
+	if err != nil {
+		http.Error(w, "failed to get fleet hashrate", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, points)
+}
+
+// queryInt reads an integer query parameter, falling back to def when it is
+// missing or malformed and clamping it to [lo, hi].
+func queryInt(r *http.Request, key string, def, lo, hi int) int {
+	v, err := strconv.Atoi(r.URL.Query().Get(key))
+	if err != nil {
+		return def
+	}
+	return min(max(v, lo), hi)
 }
 
 func (s *Server) handleProxySummary(w http.ResponseWriter, r *http.Request) {

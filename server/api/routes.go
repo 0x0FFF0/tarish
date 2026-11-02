@@ -55,6 +55,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/guides/edit-session", s.handleCreateGuideEditSession)
 	mux.HandleFunc("GET /api/overview", s.handleOverview)
 	mux.HandleFunc("GET /api/hashrate/history", s.handleHashrateHistory)
+	mux.HandleFunc("GET /api/hashrate/fleet", s.handleFleetHashrate)
 	mux.HandleFunc("GET /api/proxy/summary", s.handleProxySummary)
 	mux.HandleFunc("GET /api/proxy/workers", s.handleProxyWorkers)
 

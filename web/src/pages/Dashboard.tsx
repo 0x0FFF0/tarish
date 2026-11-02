@@ -1,5 +1,5 @@
 import { usePoll } from "@/hooks/use-poll"
-import { api, type Overview, type HashrateHistory } from "@/lib/api"
+import { api, type Overview, type FleetHashratePoint } from "@/lib/api"
 import { formatHashrate, displayName } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -9,9 +9,10 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "rec
 
 export default function Dashboard() {
   const { data: overview } = usePoll<Overview>(() => api.getOverview(), 10000)
-  const { data: history } = usePoll<HashrateHistory[]>(() => api.getHashrateHistory(undefined, 6), 30000)
+  const { data: fleet } = usePoll<FleetHashratePoint[]>(() => api.getFleetHashrate(6), 30000)
 
-  const chartData = aggregateHistory(history ?? [])
+  // The server sums each miner once per bucket; null buckets render as gaps.
+  const chartData = (fleet ?? []).map(p => ({ time: new Date(p.timestamp).getTime(), hashrate: p.hashrate, miners: p.miners }))
 
   return (
     <div className="space-y-6">
@@ -50,7 +51,7 @@ export default function Dashboard() {
             <CardTitle className="text-base">Hashrate (6h)</CardTitle>
           </CardHeader>
           <CardContent>
-            {chartData.length > 0 ? (
+            {chartData.some(p => p.hashrate !== null) ? (
               <ResponsiveContainer width="100%" height={280}>
                 <AreaChart data={chartData}>
                   <defs>
@@ -59,11 +60,15 @@ export default function Dashboard() {
                       <stop offset="95%" stopColor="oklch(0.7 0.15 160)" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="time" tick={{ fill: "#888", fontSize: 12 }} tickLine={false} axisLine={false} />
+                  <XAxis dataKey="time" tick={{ fill: "#888", fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={clock} />
                   <YAxis tick={{ fill: "#888", fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => formatHashrate(v)} />
                   <Tooltip
                     contentStyle={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 8 }}
                     labelStyle={{ color: "#aaa" }}
+                    labelFormatter={(t, payload) => {
+                      const miners: number = payload[0]?.payload?.miners ?? 0
+                      return `${clock(Number(t))} · ${miners} miner${miners === 1 ? "" : "s"}`
+                    }}
                     formatter={(v: number | undefined) => [formatHashrate(v ?? 0), "Hashrate"]}
                   />
                   <Area type="monotone" dataKey="hashrate" stroke="oklch(0.7 0.15 160)" fill="url(#hrGrad)" strokeWidth={2} />
@@ -134,31 +139,7 @@ function StatCard({ title, value, subtitle, icon }: { title: string; value: stri
   )
 }
 
-function aggregateHistory(history: HashrateHistory[]): { time: string; hashrate: number }[] {
-  const interval = 5 * 60 * 1000
-
-  // Group by tick-minute first, summing all miner hashrates per tick to get fleet total
-  const tickTotals = new Map<number, number>()
-  for (const h of history) {
-    const ms = new Date(h.timestamp).getTime()
-    const tickMin = ms - (ms % 60000)
-    tickTotals.set(tickMin, (tickTotals.get(tickMin) ?? 0) + h.current)
-  }
-
-  // Then bucket tick-level fleet totals into 5-minute intervals
-  const buckets = new Map<number, number[]>()
-  for (const [tickMin, total] of tickTotals) {
-    const bucketMs = tickMin - (tickMin % interval)
-    let arr = buckets.get(bucketMs)
-    if (!arr) { arr = []; buckets.set(bucketMs, arr) }
-    arr.push(total)
-  }
-
-  return Array.from(buckets.entries())
-    .sort(([a], [b]) => a - b)
-    .map(([bucketMs, totals]) => {
-      const d = new Date(bucketMs)
-      const time = `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`
-      return { time, hashrate: totals.reduce((s, v) => s + v, 0) / totals.length }
-    })
+function clock(ms: number): string {
+  const d = new Date(ms)
+  return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`
 }

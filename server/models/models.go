@@ -44,6 +44,14 @@ type HashrateHistory struct {
 	Max       float64   `json:"max"`
 }
 
+// FleetHashratePoint is one bucket of the fleet's total hashrate. Hashrate is
+// nil when no miner reported during the bucket.
+type FleetHashratePoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	Hashrate  *float64  `json:"hashrate"`
+	Miners    int       `json:"miners"`
+}
+
 type OverviewResponse struct {
 	TotalHashrate   float64  `json:"total_hashrate"`
 	AverageHashrate float64  `json:"average_hashrate"`
