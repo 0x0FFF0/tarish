@@ -9,21 +9,33 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
+
+	"tarish/config"
 )
 
+// baseURL is the download origin (version file + dist binaries). Tests
+// point this at an in-process HTTP server so they never hit production.
+var baseURL = "https://file.aooo.nl/tarish"
+
 const (
-	// Primary download base URL
-	baseURL = "https://file.aooo.nl/tarish"
+	lastAdvertisedFile   = "last-advertised-version"
+	maxVersionBodyBytes  = 256
+	maxVersionTokenRunes = 64
 )
 
 // Version is set at build time via -ldflags
 var Version = "dev"
 
+// replaceBinaryFn is the install step after a successful download. Tests
+// replace it so a failed apply can be forced without touching this process.
+var replaceBinaryFn = replaceBinary
+
 // Update checks for updates and downloads the latest version (interactive)
 func Update() error {
 	fmt.Println("Checking for updates...")
 
-	currentVersion := GetCurrentVersion()
+	currentVersion := strings.TrimSpace(GetCurrentVersion())
 	fmt.Printf("Current version: %s\n", currentVersion)
 
 	latestVersion, err := getLatestVersion()
@@ -34,7 +46,7 @@ func Update() error {
 	} else {
 		fmt.Printf("Latest version: %s\n", latestVersion)
 
-		if currentVersion == latestVersion && currentVersion != "dev" {
+		if latestVersion == currentVersion && currentVersion != "dev" {
 			fmt.Println("You are already running the latest version")
 			return nil
 		}
@@ -59,7 +71,7 @@ const (
 // timestamp: record on NoChange/Applied so the cooldown starts; skip
 // recording on Failed/CheckErr so the next invocation retries immediately.
 func AutoUpdate() AutoUpdateResult {
-	currentVersion := GetCurrentVersion()
+	currentVersion := strings.TrimSpace(GetCurrentVersion())
 	if currentVersion == "dev" {
 		return AutoUpdateSkipped
 	}
@@ -73,9 +85,15 @@ func AutoUpdate() AutoUpdateResult {
 		return AutoUpdateNoChange
 	}
 
+	// One binary transfer per advertised version on this machine, even if
+	// replace failed last time or this is a new process.
+	if loadLastAdvertised() == latestVersion {
+		return AutoUpdateNoChange
+	}
+
 	fmt.Printf("Auto-updating tarish %s -> %s ...\n", currentVersion, latestVersion)
 
-	if err := downloadAndReplace(); err != nil {
+	if err := installUpdate(latestVersion); err != nil {
 		fmt.Printf("Auto-update failed: %v (continuing)\n", err)
 		return AutoUpdateFailed
 	}
@@ -92,8 +110,15 @@ func AutoUpdate() AutoUpdateResult {
 // restart long-lived daemons that still hold the old process image.
 var AfterApply func()
 
-// downloadAndReplace fetches the platform binary and replaces the current one
+// downloadAndReplace fetches the platform binary and replaces the current one.
 func downloadAndReplace() error {
+	return installUpdate("")
+}
+
+// installUpdate fetches the platform binary. When advertised is non-empty it
+// is persisted after a successful GET so auto-update will not fetch that
+// version again, even if replace fails.
+func installUpdate(advertised string) error {
 	binaryName := getBinaryName()
 	downloadURL := fmt.Sprintf("%s/dist/%s", baseURL, binaryName)
 
@@ -105,7 +130,13 @@ func downloadAndReplace() error {
 	}
 	defer os.Remove(tempFile)
 
-	if err := replaceBinary(tempFile); err != nil {
+	if advertised != "" {
+		if err := saveLastAdvertised(advertised); err != nil {
+			fmt.Printf("Warning: could not remember advertised version: %v\n", err)
+		}
+	}
+
+	if err := replaceBinaryFn(tempFile); err != nil {
 		return fmt.Errorf("failed to install update: %w", err)
 	}
 
@@ -136,12 +167,84 @@ func getLatestVersion() (string, error) {
 		return "", fmt.Errorf("server returned status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxVersionBodyBytes))
 	if err != nil {
 		return "", err
 	}
 
-	return strings.TrimSpace(string(body)), nil
+	return parseAdvertisedVersion(string(body))
+}
+
+// parseAdvertisedVersion returns a single usable version token, or an error
+// if the body is empty or not a version string.
+func parseAdvertisedVersion(raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", fmt.Errorf("empty version")
+	}
+	if strings.ContainsFunc(v, unicode.IsSpace) {
+		return "", fmt.Errorf("version is not a single token")
+	}
+	runes := []rune(v)
+	if len(runes) > maxVersionTokenRunes {
+		return "", fmt.Errorf("version too long")
+	}
+	for _, r := range runes {
+		if !isVersionTokenRune(r) {
+			return "", fmt.Errorf("invalid version token")
+		}
+	}
+	return v, nil
+}
+
+func isVersionTokenRune(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z':
+		return true
+	case r >= 'A' && r <= 'Z':
+		return true
+	case r >= '0' && r <= '9':
+		return true
+	case r == '.' || r == '-' || r == '_' || r == '+':
+		return true
+	default:
+		return false
+	}
+}
+
+func lastAdvertisedPath() (string, error) {
+	dir, err := config.ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, lastAdvertisedFile), nil
+}
+
+func saveLastAdvertised(version string) error {
+	path, err := lastAdvertisedPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(version+"\n"), 0644)
+}
+
+func loadLastAdvertised() string {
+	path, err := lastAdvertisedPath()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	v, err := parseAdvertisedVersion(string(data))
+	if err != nil {
+		return ""
+	}
+	return v
 }
 
 // CheckForUpdates checks if an update is available without downloading
@@ -151,7 +254,7 @@ func CheckForUpdates() (bool, string, error) {
 		return false, "", err
 	}
 
-	currentVersion := GetCurrentVersion()
+	currentVersion := strings.TrimSpace(GetCurrentVersion())
 	return currentVersion != latestVersion && currentVersion != "dev", latestVersion, nil
 }
 
